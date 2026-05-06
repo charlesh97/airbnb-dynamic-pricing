@@ -1,0 +1,353 @@
+{
+ "openapi": "3.0.0",
+ "servers": [
+  {
+   "url": "https://app.usewheelhouse.com/api/v2/"
+  }
+ ],
+ "info": {
+  "license": {
+   "name": "All Rights Reserved"
+  },
+  "description": "The Wheelhouse Lite API allows users to fetch price recommendations for a listing on demand\nwithout having to create a unit in Wheelhouse or upload any calendar or booking data. The\nrecommendations will be less specific than from our full Wheelhouse Pro API but can be integrated more\neasily and with less development time.\n\n**Note: The API is still in beta testing and maybe subject to changes!**\n",
+  "contact": {
+   "email": "tech-support@usewheelhouse.com"
+  },
+  "title": "Wheelhouse Lite API",
+  "termsOfService": "http://help.usewheelhouse.com/privacy-and-terms/terms-of-service",
+  "version": "v1.0",
+  "x-logo": {
+   "url": "https://app.usewheelhouse.com/api/logo.png",
+   "backgroundColor": "#ffffff",
+   "altText": "Wheelhouse logo",
+   "href": "https://www.usewheelhouse.com/contact#"
+  }
+ },
+ "tags": [
+  {
+   "name": "Host",
+   "description": "https://app.usewheelhouse.com/api/v2/"
+  }
+ ],
+ "security": [
+  {
+   "CompSetApiKey": [],
+   "UserApiKey": []
+  }
+ ],
+ "components": {
+  "securitySchemes": {
+   "LiteApiKey": {
+    "name": "token",
+    "in": "query",
+    "type": "apiKey",
+    "description": "All integrations will be given a Lite API key. [Contact\nus](mailto:tech-support@usewheelhouse.com) with a description of your use-case to get one.\n"
+   }
+  }
+ },
+ "paths": {
+  "/recommendations": {
+   "get": {
+    "summary": "Fetch recommendations for a listing",
+    "description": "This will fetch recommendations for the listing specified in the parameters.",
+    "tags": [
+     "Recommendations"
+    ],
+    "operationId": "getRecommendations",
+    "security": [
+     {
+      "LiteApiKey": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "latitude",
+      "in": "query",
+      "required": true,
+      "description": "Latitude in decimal form.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "longitude",
+      "in": "query",
+      "required": true,
+      "description": "Longitude in decimal form.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "bedrooms",
+      "in": "query",
+      "required": true,
+      "description": "Number of bedrooms in the property.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "baths",
+      "in": "query",
+      "required": true,
+      "description": "Number of bathrooms in the property.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "sleeps",
+      "in": "query",
+      "required": true,
+      "description": "Number of guests the property can accommodate.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "country_code",
+      "in": "query",
+      "required": false,
+      "description": "The ISO-3166 2 letter country code.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "num_photos",
+      "in": "query",
+      "required": false,
+      "description": "Number of photos shown on the property's listing.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "room_type",
+      "in": "query",
+      "required": false,
+      "description": "Room type of the property. One of `apartment`, `bnb`, `boat`, `bus`, `cabin`, `holiday_home`, `camping`, `camper`, `castle`, `hostel`, `hotel`, `house`, `houseboat`, `island`, `tower`, `mill`, `room`, `shared`.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "cleaning_fee",
+      "in": "query",
+      "required": false,
+      "description": "Cleaning fee charged per stay.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "security_deposit",
+      "in": "query",
+      "required": false,
+      "description": "Security deposit required per stay.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "guests_included",
+      "in": "query",
+      "required": false,
+      "description": "Number of guests included in the base rent.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "amenities",
+      "in": "query",
+      "required": false,
+      "description": "Comma-separated list of amenities. Any of `24_hour_check_in`, `air_conditioning`, `baby_bath`, `baby_monitor`, `babysitter_recommendations`, `balcony`, `bathroom_essentials`, `bathtub`, `bbq`, `beachfront`, `beach_essentials`, `bed_linens`, `bedroom_comforts`, `bicycles`, `breakfast`, `building_staff`, `cable_or_satellite_tv`, `carbon_monoxide_detector`, `ceiling_fans`, `changing_table`, `childrens_books_and_toys`, `childrens_dinnerware`, `cleaning_before_checkout`, `coffee_maker`, `cooking_basics`, `deck`, `dishes_and_silverware`, `dishwasher`, `dryer`, `elevator`, `elderly_accessible`, `essentials`, `ev_charger`, `extra_pillows_and_blankets`, `family_kid_friendly`, `fire_extinguisher` ,`fireplace`, `fireplace_guards`, `first_aid_kit`, `freezer`, `fresh_linens`, `fridge`, `game_console`, `garage`, `gym`, `hair_dryer`, `hangers`, `heating`, `high_chair`, `host_greets_you`, `hot_tub`, `hot_water`, `internet`, `iron`, `jacuzzi`, `kettle`, `keypad`, `kitchen`, `lake_access`, `laptop_friendly_workspace`, `lockbox`, `lock_on_bedroom_door`, `long_term_stays_allowed`, `luggage_dropoff`, `microwave`, `outlet_covers`, `oven`, `parking`, `parking_paid`, `parking_free_street`, `patio`, `pets_allowed`, `pool`, `shared_pool`, `pool_cover`, `pool_toys`, `private_yard`, `private_entrance`, `private_living_room`, `refrigerator`, `room_darkening_shades`, `sauna`, `self_check_in`, `shampoo`, `single_level_home`, `ski_in_out`, `smart_lock`, `smoke_detector`, `smoking_allowed`, `step_free_access`, `stereo`, `stove`, `streaming`, `suitable_for_events`, `table_corner_guards`, `towel`, `travel_crib`, `tv`, `washing_machine`, `waterfront`, `water_views`, `window_guards`.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "currency",
+      "in": "query",
+      "required": false,
+      "description": "The ISO-4217 currency code of the currency the results should be in. Defaults to the local market currency.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "no_temporality",
+      "in": "query",
+      "required": false,
+      "description": "Turn on/off temporality adjustments for lead-time independent forecasts. Defaults to on.",
+      "schema": {
+       "type": "boolean"
+      }
+     },
+     {
+      "name": "min_price",
+      "in": "query",
+      "required": false,
+      "description": "Minimum price limiting recommendation to ensure no recommended price is lower than this value. Defaults to zero.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "avg_booking_price",
+      "in": "query",
+      "required": false,
+      "description": "Average nightly price the listing has been booked at in the past. Given in the requested `currency`.",
+      "schema": {
+       "type": "number"
+      }
+     },
+     {
+      "name": "booking_price_certainty",
+      "in": "query",
+      "required": false,
+      "description": "Certainty of the average booking price being a good representation of the listings worth. 0.0 means no certainty at all, 1.0 means full certainty that the price is representative. This can for example be derived from the number of nights booked or from host feedback.",
+      "schema": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successfully retrieved recommendations.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "daily_recommendation": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "base_price": {
+              "description": "Recommended base price.",
+              "type": "number"
+             },
+             "temporality_dollar_value": {
+              "description": "Change due to teamporality.",
+              "type": "number"
+             },
+             "seasonality_dollar_value": {
+              "description": "Change due to seasonality.",
+              "type": "number"
+             },
+             "local_event_dollar_value": {
+              "description": "Change due to local events.",
+              "type": "number"
+             },
+             "restriction_dollar_value": {
+              "description": "Change due to minimum.",
+              "type": "number"
+             },
+             "total_price": {
+              "description": "Total recommended price.",
+              "type": "number"
+             }
+            }
+           }
+          },
+          "currency": {
+           "description": "The ISO4217 currency code for the recommended prices.",
+           "type": "string",
+           "example": "USD"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Parameters malformed, see body for details."
+     },
+     "404": {
+      "description": "No market coverage for given location."
+     }
+    }
+   }
+  },
+  "/in_market": {
+   "get": {
+    "summary": "Market Coverage",
+    "description": "Test if a location is covered by a Wheelhouse market.",
+    "tags": [
+     "Market Coverage"
+    ],
+    "operationId": "testMarketCoverage",
+    "security": [
+      {
+       "LiteApiKey": []
+      }
+     ],
+    "parameters": [
+      {
+       "name": "latitude",
+       "in": "query",
+       "required": true,
+       "description": "Latitude in decimal form.",
+       "schema": {
+        "type": "number"
+       }
+      },
+      {
+       "name": "longitude",
+       "in": "query",
+       "required": true,
+       "description": "Longitude in decimal form.",
+       "schema": {
+        "type": "number"
+       }
+      },
+      {
+       "name": "country",
+       "in": "query",
+       "description": "The ISO-3166 2 letter country code.",
+       "schema": {
+        "type": "string"
+       }
+      },
+      {
+       "name": "postal_code",
+       "in": "query",
+       "description": "A regional postal code for within the given country.",
+       "schema": {
+        "type": "string"
+       }
+      }
+     ],
+     "responses": {
+      "200": {
+       "description": "Definition of market covering the location.",
+       "content": {
+        "application/json": {
+         "schema": {
+          "type": "object",
+          "properties": {
+           "in_market": {
+            "description": "Value is `true` if the location is covered by a Wheelhouse market.",
+            "type": "boolean"
+           },
+           "market_name": {
+            "description": "Title of the market if covered.",
+            "type": "string"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
