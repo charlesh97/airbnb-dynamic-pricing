@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pricing Configuration &amp; Seasonality - Lumina Resorts</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Fluid Toggle Styles */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: transparent;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: var(--color-primary, #0061a4);
+        }
+        .toggle-checkbox:checked + .toggle-label:after {
+            transform: translateX(100%);
+            border-color: white;
+        }
+        .toggle-label {
+            width: 3rem;
+            height: 1.5rem;
+            background-color: var(--color-surface-variant, #e0e3e5);
+            border-radius: 9999px;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .toggle-label:after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 1.25rem;
+            height: 1.25rem;
+            background-color: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-on-surface": "#eff1f3",
+                        "surface": "#f7f9fb",
+                        "on-surface-variant": "#404752",
+                        "primary-container": "#2196f3",
+                        "surface-dim": "#d8dadc",
+                        "on-secondary-fixed-variant": "#930005",
+                        "on-secondary-fixed": "#410001",
+                        "on-error-container": "#93000a",
+                        "tertiary-container": "#00a0b5",
+                        "tertiary": "#006876",
+                        "on-secondary-container": "#fffbff",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#d1e4ff",
+                        "error-container": "#ffdad6",
+                        "on-primary-container": "#002c4f",
+                        "surface-variant": "#e0e3e5",
+                        "secondary": "#b81311",
+                        "secondary-container": "#dc3128",
+                        "on-secondary": "#ffffff",
+                        "outline": "#707883",
+                        "tertiary-fixed-dim": "#44d8f1",
+                        "inverse-surface": "#2d3133",
+                        "surface-container-high": "#e6e8ea",
+                        "primary-fixed-dim": "#9ecaff",
+                        "on-primary-fixed": "#001d36",
+                        "tertiary-fixed": "#a1efff",
+                        "secondary-fixed": "#ffdad5",
+                        "on-error": "#ffffff",
+                        "background": "#f7f9fb",
+                        "surface-tint": "#0061a4",
+                        "on-tertiary-fixed": "#001f25",
+                        "on-primary-fixed-variant": "#00497d",
+                        "on-tertiary-container": "#003037",
+                        "surface-container-low": "#f2f4f6",
+                        "on-background": "#191c1e",
+                        "on-tertiary-fixed-variant": "#004e59",
+                        "outline-variant": "#bfc7d4",
+                        "on-tertiary": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "primary": "#0061a4",
+                        "surface-bright": "#f7f9fb",
+                        "surface-container-highest": "#e0e3e5",
+                        "error": "#ba1a1a",
+                        "inverse-primary": "#9ecaff",
+                        "secondary-fixed-dim": "#ffb4a9",
+                        "surface-container-lowest": "#ffffff",
+                        "on-surface": "#191c1e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "liquid": "24px 8px 24px 8px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "margin-desktop": "64px",
+                        "liquid-padding": "32px",
+                        "margin-mobile": "20px",
+                        "base-unit": "8px"
+                    },
+                    "fontFamily": {
+                        "price-display": ["Hanken Grotesk"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Hanken Grotesk"],
+                        "display-lg": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "price-display": ["20px", { "lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col antialiased selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="bg-surface/80 dark:bg-on-surface/80 backdrop-blur-md text-primary dark:text-primary-fixed-dim font-headline-lg text-headline-lg-mobile md:text-headline-lg docked full-width top-0 z-50 bg-surface/80 backdrop-blur-xl shadow-[0_20px_40px_rgba(0,97,164,0.08)] flex justify-between items-center w-full px-margin-mobile md:px-margin-desktop py-4 sticky">
+<div class="flex items-center gap-8">
+<h1 class="font-display-lg text-display-lg text-primary tracking-tight">Lumina Resorts</h1>
+<nav class="hidden md:flex gap-6">
+<!-- Insights Active for global context -->
+<a class="text-primary border-b-2 border-primary font-bold hover:text-primary transition-colors duration-300 scale-98 active:scale-95 transition-transform" href="#">Insights</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-300 scale-98 active:scale-95 transition-transform" href="#">Portfolio</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-300 scale-98 active:scale-95 transition-transform" href="#">Team</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-full hover:bg-surface-container-highest">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-full hover:bg-surface-container-highest">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden relative">
+<!-- SideNavBar -->
+<aside class="bg-surface-container-lowest dark:bg-inverse-surface text-primary dark:text-primary-fixed font-body-md text-body-md font-headline-lg text-primary docked h-screen left-0 w-64 rounded-r-xl bg-surface-container-low/50 shadow-[20px_0_40px_rgba(33,150,243,0.05)] hidden lg:flex flex-col h-full py-8 space-y-4 shrink-0 overflow-y-auto z-40 relative">
+<div class="px-6 mb-8">
+<div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xl mb-4 shadow-sm">
+                    OS
+                </div>
+<h2 class="font-headline-lg text-headline-lg-mobile text-on-surface">Oceanview Suite</h2>
+<p class="text-label-sm text-on-surface-variant mt-1">Premium Tier</p>
+</div>
+<nav class="flex-1 flex flex-col gap-2">
+<a class="flex items-center gap-4 px-6 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-4 px-6 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_month">calendar_month</span>
+<span>Calendar</span>
+</a>
+<a class="flex items-center gap-4 px-6 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="bed">bed</span>
+<span>Inventory</span>
+</a>
+<!-- Active State: Revenue -->
+<a class="flex items-center gap-4 px-6 py-3 bg-primary-container text-on-primary-container rounded-full mx-2 font-bold hover:bg-primary/10 transition-all scale-98 duration-200 shadow-sm" href="#">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+<span>Revenue</span>
+</a>
+<a class="flex items-center gap-4 px-6 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="px-6 mt-auto">
+<button class="w-full py-3 px-6 bg-primary text-on-primary rounded-full font-label-sm hover:opacity-90 transition-opacity shadow-md flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">add</span> Add Property
+                </button>
+</div>
+<div class="mt-8 flex flex-col gap-2">
+<a class="flex items-center gap-4 px-6 py-2 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all text-sm" href="#">
+<span class="material-symbols-outlined text-base" data-icon="help">help</span>
+<span>Help</span>
+</a>
+<a class="flex items-center gap-4 px-6 py-2 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all text-sm" href="#">
+<span class="material-symbols-outlined text-base" data-icon="logout">logout</span>
+<span>Sign Out</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 overflow-y-auto p-margin-mobile md:p-margin-desktop bg-surface pb-32 lg:pb-margin-desktop">
+<div class="max-w-6xl mx-auto space-y-gutter">
+<header class="mb-8">
+<h2 class="font-headline-lg text-headline-lg text-on-surface tracking-tight mb-2">Pricing Configuration &amp; Seasonality</h2>
+<p class="text-on-surface-variant font-body-md">Manage dynamic rates, analyze trends, and configure booking rules for Oceanview Suite.</p>
+</header>
+<!-- Top Section: Fluid Line Graph -->
+<section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.08)] p-liquid-padding relative overflow-hidden">
+<div class="flex justify-between items-center mb-8 relative z-10">
+<div>
+<h3 class="font-headline-lg text-headline-lg-mobile text-on-surface">Seasonality Trends</h3>
+<p class="text-label-sm text-on-surface-variant mt-1">Projected demand vs. recommended base rate</p>
+</div>
+<div class="flex gap-4">
+<span class="flex items-center gap-2 text-label-sm text-primary">
+<span class="w-3 h-3 rounded-full bg-primary"></span> Base Rate
+                            </span>
+<span class="flex items-center gap-2 text-label-sm text-secondary-container">
+<span class="w-3 h-3 rounded-full bg-secondary-container"></span> Demand Surge
+                            </span>
+</div>
+</div>
+<!-- SVG Graph Placeholder -->
+<div class="w-full h-[300px] relative z-10">
+<svg class="w-full h-full overflow-visible" preserveaspectratio="none" viewbox="0 0 1000 300">
+<defs>
+<lineargradient id="lineGrad" x1="0%" x2="100%" y1="0%" y2="0%">
+<stop offset="0%" stop-color="#0061a4"></stop>
+<stop offset="50%" stop-color="#dc3128"></stop>
+<stop offset="100%" stop-color="#0061a4"></stop>
+</lineargradient>
+<lineargradient id="areaGrad" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#0061a4" stop-opacity="0.2"></stop>
+<stop offset="100%" stop-color="#0061a4" stop-opacity="0"></stop>
+</lineargradient>
+</defs>
+<!-- Grid Lines -->
+<line stroke="#e0e3e5" stroke-dasharray="4" stroke-width="1" x1="0" x2="1000" y1="50" y2="50"></line>
+<line stroke="#e0e3e5" stroke-dasharray="4" stroke-width="1" x1="0" x2="1000" y1="150" y2="150"></line>
+<line stroke="#e0e3e5" stroke-dasharray="4" stroke-width="1" x1="0" x2="1000" y1="250" y2="250"></line>
+<!-- Area -->
+<path d="M0,250 Q150,200 300,220 T600,80 T800,180 T1000,150 L1000,300 L0,300 Z" fill="url(#areaGrad)"></path>
+<!-- Fluid Line -->
+<path class="drop-shadow-[0_8px_12px_rgba(220,49,40,0.2)]" d="M0,250 Q150,200 300,220 T600,80 T800,180 T1000,150" fill="none" stroke="url(#lineGrad)" stroke-linecap="round" stroke-width="6"></path>
+<!-- Data Points -->
+<circle cx="300" cy="220" fill="#ffffff" r="6" stroke="#0061a4" stroke-width="3"></circle>
+<circle class="drop-shadow-lg" cx="600" cy="80" fill="#ffffff" r="8" stroke="#dc3128" stroke-width="4"></circle>
+<circle cx="800" cy="180" fill="#ffffff" r="6" stroke="#0061a4" stroke-width="3"></circle>
+</svg>
+<!-- Axis Labels -->
+<div class="absolute bottom-[-24px] left-0 w-full flex justify-between text-label-sm text-on-surface-variant px-4">
+<span>Jan</span>
+<span>Mar</span>
+<span>Jun</span>
+<span>Sep</span>
+<span>Dec</span>
+</div>
+</div>
+</section>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Middle Section: Holidays & Events -->
+<section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding border border-surface-container-low">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-full bg-secondary-container/10 flex items-center justify-center text-secondary-container">
+<span class="material-symbols-outlined">celebration</span>
+</div>
+<h3 class="font-headline-lg text-headline-lg-mobile text-on-surface">Holidays &amp; Events</h3>
+</div>
+<p class="text-label-sm text-on-surface-variant mb-8">Enable dynamic pricing surges for high-demand periods.</p>
+<div class="space-y-6">
+<!-- Toggle Item -->
+<div class="flex justify-between items-center p-4 rounded-xl hover:bg-surface-container-low transition-colors">
+<div>
+<div class="font-price-display text-price-display text-on-surface">New Year's Eve</div>
+<div class="text-label-sm text-on-surface-variant">Dec 30 - Jan 2 • <span class="text-secondary-container font-bold">+45% Surge</span></div>
+</div>
+<div>
+<input checked="" class="toggle-checkbox sr-only" id="toggle-ny" type="checkbox"/>
+<label class="toggle-label block" for="toggle-ny"></label>
+</div>
+</div>
+<!-- Toggle Item -->
+<div class="flex justify-between items-center p-4 rounded-xl hover:bg-surface-container-low transition-colors">
+<div>
+<div class="font-price-display text-price-display text-on-surface">Spring Break</div>
+<div class="text-label-sm text-on-surface-variant">Mar 15 - Apr 5 • <span class="text-secondary-container font-bold">+20% Surge</span></div>
+</div>
+<div>
+<input class="toggle-checkbox sr-only" id="toggle-sb" type="checkbox"/>
+<label class="toggle-label block" for="toggle-sb"></label>
+</div>
+</div>
+<!-- Toggle Item -->
+<div class="flex justify-between items-center p-4 rounded-xl hover:bg-surface-container-low transition-colors">
+<div>
+<div class="font-price-display text-price-display text-on-surface">Summer Peak</div>
+<div class="text-label-sm text-on-surface-variant">Jun 1 - Aug 31 • <span class="text-secondary-container font-bold">+35% Surge</span></div>
+</div>
+<div>
+<input checked="" class="toggle-checkbox sr-only" id="toggle-sp" type="checkbox"/>
+<label class="toggle-label block" for="toggle-sp"></label>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Section: Booking Rules -->
+<section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding border border-surface-container-low flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">rule_settings</span>
+</div>
+<h3 class="font-headline-lg text-headline-lg-mobile text-on-surface">Booking Rules</h3>
+</div>
+<p class="text-label-sm text-on-surface-variant mb-8">Set parameters for advanced reservations to optimize occupancy.</p>
+<div class="mb-8">
+<label class="block text-label-sm font-bold text-on-surface mb-3" for="adv-booking">Advanced Booking Window (Days)</label>
+<div class="relative">
+<span class="absolute inset-y-0 left-4 flex items-center text-on-surface-variant">
+<span class="material-symbols-outlined">update</span>
+</span>
+<input class="w-full bg-surface-container-low border-none rounded-full py-4 pl-12 pr-6 text-on-surface font-price-display focus:ring-4 focus:ring-primary/20 transition-shadow outline-none placeholder:text-on-surface-variant/50" id="adv-booking" placeholder="e.g. 90" type="number" value="180"/>
+</div>
+<p class="text-xs text-on-surface-variant mt-3 px-4">Guests cannot book dates further out than this window.</p>
+</div>
+</div>
+<button class="w-full py-4 px-8 bg-gradient-to-r from-primary to-primary-container text-on-primary rounded-full font-label-sm hover:opacity-95 active:scale-98 transition-all shadow-[0_10px_20px_rgba(33,150,243,0.3)] flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" data-icon="save">save</span>
+                            Save Configuration
+                        </button>
+</section>
+</div>
+</div>
+</main>
+</div>
+<!-- BottomNavBar -->
+<nav class="bg-surface/90 dark:bg-on-surface/90 backdrop-blur-lg text-primary dark:text-primary-fixed-dim font-label-sm text-label-sm hidden fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/90 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] lg:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-3 pb-safe border-t border-surface-container-low">
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150 p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="home">home</span>
+<span>Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150 p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="calendar_today">calendar_today</span>
+<span>Calendar</span>
+</a>
+<!-- Active State: Rates -->
+<a class="flex flex-col items-center justify-center bg-primary text-on-primary rounded-full px-6 py-1 active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150 shadow-md" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="sell">sell</span>
+<span>Rates</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150 p-2 rounded-xl" href="#">
+<span class="material-symbols-outlined mb-1" data-icon="menu">menu</span>
+<span>More</span>
+</a>
+</nav>
+</body></html>

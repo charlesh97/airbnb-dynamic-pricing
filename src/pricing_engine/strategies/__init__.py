@@ -16,4 +16,5 @@ __all__ = [
     "CompetitorStrategy",
     "AvailabilityStrategy",
     "AvailabilityResult",
+    "WeatherStrategy",
 ]

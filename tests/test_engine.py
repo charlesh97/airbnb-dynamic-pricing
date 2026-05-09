@@ -1,7 +1,10 @@
 """Tests for the pricing engine — weighted average, bounds, NaN checks."""
 
 import unittest
+import sys
 from datetime import datetime, timedelta
+
+sys.path.insert(0, "src")
 
 from pricing_engine.engine import PricingEngine, DatePrice
 from pricing_engine.strategies.base import PriceRecommendation
@@ -135,6 +138,33 @@ class TestPricingEngine(unittest.TestCase):
         self.assertIsInstance(result.confidence, float)
         self.assertGreaterEqual(result.confidence, 0.0)
         self.assertLessEqual(result.confidence, 1.0)
+
+
+class TestNormalizeWeights(unittest.TestCase):
+    def test_empty_weights(self):
+        engine = PricingEngine()
+        result = engine._normalize_weights({})
+        self.assertEqual(result, {})
+
+    def test_already_sums_to_one(self):
+        engine = PricingEngine()
+        result = engine._normalize_weights({"demand": 0.4, "event": 0.3, "competitor": 0.2, "yield": 0.1})
+        self.assertEqual(result, {"demand": 0.4, "event": 0.3, "competitor": 0.2, "yield": 0.1})
+
+    def test_zero_total_returns_unchanged(self):
+        engine = PricingEngine()
+        result = engine._normalize_weights({"demand": 0.0, "event": 0.0})
+        self.assertEqual(result, {"demand": 0.0, "event": 0.0})
+
+    def test_partial_weights_normalized(self):
+        engine = PricingEngine()
+        result = engine._normalize_weights({"demand": 0.5, "event": 0.5})
+        self.assertAlmostEqual(sum(result.values()), 1.0)
+
+    def test_single_strategy(self):
+        engine = PricingEngine()
+        result = engine._normalize_weights({"demand": 1.0})
+        self.assertEqual(result, {"demand": 1.0})
 
 
 if __name__ == "__main__":

@@ -93,6 +93,52 @@ class AvailabilityStrategy(PricingStrategy):
                     factors=gap_result.factors,
                 )
 
+        # 5. Booking window limit — block dates beyond configured window
+        booking_window = avail_cfg.get("booking_window_days")
+
+        # ── Block day before / day after bookings ──────────────────────────────
+        block_before = avail_cfg.get("block_day_before", False)
+        block_after = avail_cfg.get("block_day_after", False)
+
+        if block_before or block_after:
+            for b in bookings_in_window:
+                # Support both bare keys (checkin/checkout) and iGMS keys (local_checkin_dttm/local_checkout_dttm)
+                checkin_raw = b.get("checkin") or b.get("local_checkin_dttm", "")[:10]
+                checkout_raw = b.get("checkout") or b.get("local_checkout_dttm", "")[:10]
+                checkin = _parse_date(checkin_raw)
+                checkout = _parse_date(checkout_raw)
+
+                if block_before and checkin:
+                    blocked_day = checkin - timedelta(days=1)
+                    if target == blocked_day:
+                        return AvailabilityResult(
+                            is_available=False,
+                            min_stay=min_stay,
+                            blocked_reason=f"day_before_checkin_blocked ({b.get('reservation_code', '?')})",
+                            factors={"day_before_checkin_blocked": True, "checkin": checkin.isoformat()},
+                        )
+
+                if block_after and checkout:
+                    blocked_day_after = checkout + timedelta(days=1)
+                    if target == blocked_day_after:
+                        return AvailabilityResult(
+                            is_available=False,
+                            min_stay=min_stay,
+                            blocked_reason=f"day_after_checkout_blocked ({b.get('reservation_code', '?')})",
+                            factors={"day_after_checkout_blocked": True, "checkout": checkout.isoformat()},
+                        )
+
+        if booking_window is not None:
+            from_day = datetime.now()
+            days_out = (target - from_day).days
+            if days_out > booking_window:
+                return AvailabilityResult(
+                    is_available=False,
+                    min_stay=min_stay,
+                    blocked_reason="booking_window_closed",
+                    factors={"booking_window_days": booking_window, "days_out": days_out},
+                )
+
         return AvailabilityResult(
             is_available=True,
             min_stay=min_stay,

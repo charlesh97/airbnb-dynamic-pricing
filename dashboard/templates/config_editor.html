@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Config — iGMS Pricing{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-gutter">
+  <header class="mb-8">
+    <h2 class="text-headline-lg text-on-surface tracking-tight mb-2">Pricing Configuration</h2>
+    <p class="text-on-surface-variant font-body-md" id="property-name-display">Configure dynamic rates for this property.</p>
+  </header>
+
+  <!-- Top Section: Seasonal Chart -->
+  <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.08)] p-liquid-padding relative overflow-hidden">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+        <span class="material-symbols-outlined">calendar_month</span>
+      </div>
+      <div>
+        <h3 class="text-headline-lg-mobile text-on-surface">
+        Seasonality Trends
+        <span class="info-tooltip">
+          <span class="material-symbols-outlined">info</span>
+          <span class="tooltip-box">Monthly demand multipliers. Baseline = 1.0. Summer/winter peaks and shoulder-season dips reflect typical booking patterns for your market. Drag points to adjust.</span>
+        </span>
+      </h3>
+        <p class="text-label-sm text-on-surface-variant mt-1">Drag points to adjust monthly multipliers (baseline = 1.0)</p>
+      </div>
+    </div>
+    <!-- Seasonal Chart — Redesigned -->
+      <!-- Canvas -->
+      <div class="relative" style="max-width:800px;margin:0 auto;">
+        <canvas id="seasonal-chart" width="800" height="220" style="width:100%;height:auto;display:block;cursor:crosshair;"></canvas>
+        <!-- Tooltip -->
+        <div id="seasonal-tooltip" class="absolute hidden bg-surface-container-highest rounded-xl px-3 py-1.5 text-sm font-bold text-on-surface shadow-lg pointer-events-none z-10" style="transform:translate(-50%,-120%);border:1px solid rgba(0,0,0,0.08)"></div>
+      </div>
+
+      <!-- Preset buttons -->
+      <div class="flex flex-wrap gap-2 mt-5 mb-4 justify-center">
+        <button class="preset-btn px-3 py-1.5 rounded-full text-label-sm font-semibold border border-surface-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors" data-preset="flat">Reset Flat 1.0</button>
+      </div>
+
+      <!-- Summary row -->
+      <div class="flex flex-wrap gap-4 justify-center mb-5 text-label-sm" id="seasonal-summary">
+        <span class="flex items-center gap-1.5"><span class="text-on-surface-variant">High:</span><span id="sum-high" class="font-bold text-on-surface">—</span></span>
+        <span class="flex items-center gap-1.5"><span class="text-on-surface-variant">Low:</span><span id="sum-low" class="font-bold text-on-surface">—</span></span>
+        <span class="flex items-center gap-1.5"><span class="text-on-surface-variant">Avg:</span><span id="sum-avg" class="font-bold text-on-surface">—</span></span>
+        <span class="text-on-surface-variant">Base: <span id="sum-base" class="font-bold text-on-surface">$—</span></span>
+      </div>
+
+      <!-- Month cards grid removed -->
+
+      <!-- Selected month detail (compact inline) -->
+      <div class="flex items-center gap-3 mt-4 justify-center" id="seasonal-control-row">
+        <span class="text-label-sm text-on-surface font-semibold" id="seasonal-selected-month"></span>
+        <button class="preset-btn px-3 py-1.5 rounded-full text-label-sm font-semibold border border-surface-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors" data-preset="flat" id="reset-flat-btn">Reset 1.0×</button>
+        <input type="number" step="0.01" min="0.5" max="2.0" id="seasonal-value-input" value="1.00"
+               class="w-20 px-3 py-2 rounded-full border border-surface-variant text-on-surface font-price-display text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        <span id="seasonal-value-pct" class="text-primary font-bold text-sm"></span>
+      </div>
+    </section>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+    <!-- Base Rates -->
+    <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined">attach_money</span>
+        </div>
+        <h3 class="text-headline-lg-mobile text-on-surface">Base &amp; Margins</h3>
+      </div>
+      <div class="space-y-4">
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-2 block">Base Price ($)</label>
+          <input type="number" step="1" min="1" id="base_price" class="w-full bg-surface-container-low border-none rounded-full py-3 px-5 text-on-surface font-price-display text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-2 block">Min Price ($)</label>
+          <input type="number" step="1" min="0" id="min_price" class="w-full bg-surface-container-low border-none rounded-full py-3 px-5 text-on-surface font-price-display text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-2 block">Max Price ($)</label>
+          <input type="number" step="1" min="1" id="max_price" class="w-full bg-surface-container-low border-none rounded-full py-3 px-5 text-on-surface font-price-display text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+      </div>
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-2 block">
+            Price adjustment
+            <span class="info-tooltip">
+              <span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span>
+              <span class="tooltip-box">Manually increase or decrease all prices by a fixed percentage. +10% = all prices 10% higher, -5% = all prices 5% lower.</span>
+            </span>
+            <span id="price-adjust-val" class="text-primary font-bold text-sm ml-2">±0%</span>
+          </label>
+          <input type="range" min="-0.30" max="0.30" step="0.01" id="price_adjust" class="w-full">
+        </div>
+
+    </section>
+
+    <!-- DOW Multipliers -->
+    <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined">date_range</span>
+        </div>
+        <h3 class="text-headline-lg-mobile text-on-surface">
+          Day-of-Week Multipliers
+          <span class="info-tooltip">
+            <span class="material-symbols-outlined">info</span>
+            <span class="tooltip-box">Weekend premium applied on top of the seasonal multiplier. 1.15 = 15% higher than a midweek night.</span>
+          </span>
+        </h3>
+      </div>
+      <div class="grid grid-cols-4 gap-4">
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Mon</label><input type="number" step="1" min="-50" max="100" id="dow-mon" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Tue</label><input type="number" step="1" min="-50" max="100" id="dow-tue" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Wed</label><input type="number" step="1" min="-50" max="100" id="dow-wed" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Thu</label><input type="number" step="1" min="-50" max="100" id="dow-thu" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Fri</label><input type="number" step="1" min="-50" max="100" id="dow-fri" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sat</label><input type="number" step="1" min="-50" max="100" id="dow-sat" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sun</label><input type="number" step="1" min="-50" max="100" id="dow-sun" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+      </div>
+    </section>
+
+    <!-- Demand Config -->
+    <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined">trending_up</span>
+        </div>
+        <h3 class="text-headline-lg-mobile text-on-surface">
+          Demand Config
+          <span class="info-tooltip">
+            <span class="material-symbols-outlined">info</span>
+            <span class="tooltip-box">Controls booking velocity, occupancy responsiveness, and advance booking discounts.</span>
+          </span>
+        </h3>
+      </div>
+      <div class="space-y-4">
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Demand Window (days)<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">How many days of recent bookings to analyze for demand signals. Higher = more responsive.</span></span></label><input type="number" step="1" min="1" id="demand_window_days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Velocity Window (days)<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">How many days of booking velocity to track. Higher velocity = more aggressive pricing. 7 days is standard.</span></span></label><input type="number" step="1" min="1" id="velocity_window_days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Occupancy Factor<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">How much occupancy rate influences price. 0.3 = moderate responsiveness to occupancy changes.</span></span></label><input type="number" step="0.01" min="0" max="1" id="occupancy_factor" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Far Future<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Reduces price for bookings made far in advance (when demand is less certain). Applied when target date is more than window_days away.</span></span></label>
+          <div class="flex gap-4"><input type="number" step="1" min="1" id="ff-window" class="flex-1 bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"><input type="number" step="0.01" min="0.5" max="1.0" id="ff-discount" class="flex-1 bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        </div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute: Window <span id="lm-window-val"></span> days, Discount <span id="lm-disc-val"></span><span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Applies a discount for same-week bookings to fill remaining inventory. Activates when occupancy is above threshold_occupancy.</span></span></label>
+          <div class="flex gap-4"><input type="number" step="1" min="1" id="lm-window" class="flex-1 bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"><input type="number" step="0.01" min="0.5" max="1.5" id="lm-discount" class="flex-1 bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Availability -->
+  <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+        <span class="material-symbols-outlined">event_available</span>
+      </div>
+      <h3 class="text-headline-lg-mobile text-on-surface">
+        Availability
+        <span class="info-tooltip">
+          <span class="material-symbols-outlined">info</span>
+          <span class="tooltip-box">Booking window limits how far ahead dates can be priced. Min stay sets default night requirements.</span>
+        </span>
+      </h3>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Booking Window (days)<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Blocks dates more than this many days in the future from being priced or booked. 120 days = about 4 months.</span></span></label><input type="number" step="1" min="1" id="booking_window_days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Default Min Stay<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Minimum number of nights required for a booking unless an override exists.</span></span></label><input type="number" step="1" min="1" id="min_stay_default" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+    </div>
+    <div class="mt-4 space-y-3">
+      <p class="text-label-sm text-on-surface-variant mb-2">Turn these on to hard-block the calendar day before/after any guest booking:</p>
+      <div class="flex items-center gap-3">
+        <input type="checkbox" id="block_day_before" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
+        <label for="block_day_before" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+        <span class="text-sm text-on-surface">Block day before check-in</span>
+        <span class="info-tooltip" style="margin-left:2px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Block the night before a guest arrives (keeps the day clean before arrival).</span></span>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="checkbox" id="block_day_after" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
+        <label for="block_day_after" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+        <span class="text-sm text-on-surface">Block day after check-out</span>
+        <span class="info-tooltip" style="margin-left:2px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Block the night after a guest leaves (clean turnaround day).</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Local Events -->
+  <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-full bg-secondary-container/10 flex items-center justify-center text-secondary-container">
+        <span class="material-symbols-outlined">celebration</span>
+      </div>
+      <h3 class="text-headline-lg-mobile text-on-surface">Local Events</h3>
+    </div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-surface-container-high">
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Name</th>
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Date</th>
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Factor</th>
+          <th class="w-10"></th>
+        </tr>
+      </thead>
+    <!-- Holiday proximity buffer controls -->
+    <div class="flex items-center gap-3 mb-3">
+      <div class="flex-1">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-label-sm text-on-surface font-medium">Holiday buffer</span>
+          <span class="info-tooltip">
+            <span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span>
+            <span class="tooltip-box">Number of days around each holiday where prices surge (or discount if slope is negative). CA state holidays for Frosty Pines, VA state holidays for Freedom Place.</span>
+          </span>
+          <span id="buffer-days-val" class="text-primary font-bold text-xs">3 days</span>
+        </div>
+        <input type="range" min="0" max="7" step="1" id="holiday_buffer_days" class="w-full">
+      </div>
+      <div class="flex-1">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-label-sm text-on-surface font-medium">Buffer slope</span>
+          <span class="info-tooltip">
+            <span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span>
+            <span class="tooltip-box">How aggressively prices change near holidays. Positive = surge, Negative = discount. ±5% at holiday edge, tapering to 0 at buffer boundary.</span>
+          </span>
+          <span id="buffer-slope-val" class="text-primary font-bold text-xs">+5%</span>
+        </div>
+        <input type="range" min="-0.15" max="0.15" step="0.01" id="holiday_buffer_slope" class="w-full">
+      </div>
+    </div>
+    <!-- Auto-detected holidays row removed -->
+
+      <tbody id="events-tbody"></tbody>
+    </table>
+    <button id="add-event-btn" class="mt-4 flex items-center gap-2 text-primary font-label-sm font-semibold hover:text-primary-container transition-colors">
+      <span class="material-symbols-outlined text-sm">add</span> Add Event
+    </button>
+  </section>
+
+  <!-- Save bar -->
+  <div class="sticky bottom-6 flex items-center justify-between bg-surface-container-lowest rounded-full px-6 py-4 shadow-[0_10px_30px_rgba(33,150,243,0.12)] border border-surface-container-low">
+    <div class="text-label-sm text-on-surface-variant" id="dirty-indicator" style="display:none">⚠️ Unsaved changes</div>
+    <div class="flex items-center gap-4">
+      <button id="save-config-btn" class="bg-primary text-on-primary px-8 py-3 rounded-full font-label-sm font-bold shadow-md hover:opacity-90 transition-opacity flex items-center gap-2" disabled>
+        <span class="material-symbols-outlined text-sm">save</span> Save Config
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/static/js/api.js"></script>
+<script type="module" src="/static/js/config_editor.js"></script>
+{% endblock %}

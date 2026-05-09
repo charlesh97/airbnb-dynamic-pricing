@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import sys
 from datetime import datetime, timedelta
+from typing import TextIO
 
 from rich.console import Console
 from rich.table import Table
@@ -16,6 +18,7 @@ from .config_store import PropertyConfigStore
 from .engine import DatePrice, PricingEngine, apply_manual_overrides
 from .client import PricingClient
 from .wheelhouse_fetcher import WheelhouseFetcher
+from .booking_adapter import fetch_bookings_for_window
 
 console = Console()
 
@@ -37,7 +40,195 @@ def _build_calendar_by_listing(calendar_data: list[dict]) -> dict[str, list[dict
     return by_listing
 
 
+def _fetch_bookings_cached(client, property_uid, from_date, to_date):
+    """Fetch and cache bookings for the pricing window.
+
+    Caches in an _bookings_cache dict keyed by property_uid to avoid
+    repeated API calls when the same property is visited across commands.
+    """
+    cache_key = f"{property_uid}:{from_date}:{to_date}"
+    if not hasattr(client, "_bookings_cache"):
+        client._bookings_cache: dict[str, list[dict]] = {}
+    if cache_key not in client._bookings_cache:
+        client._bookings_cache[cache_key] = fetch_bookings_for_window(
+            client, property_uid, from_date, to_date
+        )
+    return client._bookings_cache[cache_key]
+
+
+def _write_prices_csv(
+    prices: list[DatePrice],
+    from_date: str,
+    output_path: str | None = None,
+) -> str:
+    """Write pricing results to a CSV file.
+
+    Returns the path to the written file.
+    Columns: date, day_of_week, base_rate, demand_multiplier, event_factor,
+             last_minute_factor, weather_factor, adjusted_rate
+    """
+    if output_path:
+        file_path = output_path
+    else:
+        safe_date = from_date.replace("-", "")
+        file_path = f"frosty-pines-pricing-{safe_date}.csv"
+
+    rows = []
+    for dp in prices:
+        date_str = dp.date
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        dow = dt.strftime("%a")
+
+        demand_factors = dp.all_factors.get("demand", {})
+        event_factors = dp.all_factors.get("event", {})
+        weather_factors = dp.all_factors.get("weather", {})
+
+        base_rate = demand_factors.get("base_price", 0.0)
+        demand_multiplier = demand_factors.get("demand_multiplier", 1.0)
+        last_minute_factor = demand_factors.get("last_minute_factor", 1.0)
+        event_factor = event_factors.get("seasonal_multiplier", 1.0)
+        weather_factor = weather_factors.get("weather_factor", 1.0)
+
+        rows.append({
+            "date": date_str,
+            "day_of_week": dow,
+            "base_rate": round(base_rate, 2),
+            "demand_multiplier": round(demand_multiplier, 3),
+            "event_factor": round(event_factor, 3),
+            "last_minute_factor": round(last_minute_factor, 3),
+            "weather_factor": round(weather_factor, 3),
+            "adjusted_rate": dp.final_price,
+        })
+
+    with open(file_path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "date", "day_of_week", "base_rate", "demand_multiplier",
+                "event_factor", "last_minute_factor", "weather_factor", "adjusted_rate",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return file_path
+
+
 # ─── existing commands ──────────────────────────────────────────────────────────
+
+# ─── debug-day command ──────────────────────────────────────────────────────────
+
+def _factor_contribution(base: float, multiplier: float) -> float:
+    """How much the multiplier changes the price from base."""
+    return base * multiplier
+
+
+def cmd_debug_day(args: argparse.Namespace) -> None:
+    """Print a detailed factor breakdown for a single day across all properties.
+    
+    Shows price as a chain of adjustments from base rate:
+      base → seasonal → demand factors → event factors → yield → final
+    """
+    from dashboard.engine_proxy import get_day_detail
+
+    _setup_logging(args.log_level)
+    store = PropertyConfigStore()
+
+    property_uids = args.property or [
+        "731418607849470882",   # Frosty Pines (CA)
+        "645841896772032198",   # Freedom Place (VA)
+    ]
+
+    for uid in property_uids:
+        prop = store.load(uid)
+        if not prop:
+            console.print(f"[red]No config for {uid}[/red]")
+            continue
+
+        name = prop.get("name", uid)
+        state = prop.get("state", "??")
+        console.print(f"\n{'='*56}")
+        console.print(f"[bold cyan]{name}[/bold cyan]  |  {uid}  |  state={state}")
+        console.print(f"[bold]Date: {args.date}[/bold]")
+        console.print(f"{'='*56}")
+
+        detail = get_day_detail(uid, args.date, None)
+        base = detail["base_rate"]
+
+        # ── BASE ────────────────────────────────────────────────────────────
+        console.print(f"\n[bold white on blue]BASE[/bold white on blue]  ${base:.2f}")
+
+        # ── SEASONAL ────────────────────────────────────────────────────────
+        s = detail["seasonal"]
+        seasonal_mult = s["effective_seasonal"]
+        after_seasonal = base * seasonal_mult
+        rule_note = f"  [{s['rule']} rule]" if s['rule'] != 'none' else ""
+        console.print(f"[bold green]SEASONAL[/bold green]  {s['multiplier']:.3f} × ${base:.2f} = [green]${after_seasonal:.2f}[/green]{rule_note}")
+
+        # ── DEMAND ──────────────────────────────────────────────────────────
+        dm = detail["demand"]
+        current = after_seasonal
+        active_factors = []
+        for key in ["occupancy", "velocity", "far_future", "last_minute"]:
+            sub = dm.get(key, {})
+            active = sub.get("active", False)
+            if not active:
+                continue
+            discount = sub.get("discount", 1.0)
+            contrib = sub.get("contribution", "")
+            active_factors.append((key, discount, contrib))
+        
+        demand_mult = dm.get("multiplier", 1.0)
+        after_demand = current * demand_mult
+        if active_factors:
+            console.print(f"[bold yellow]DEMAND[/bold yellow]  {demand_mult:.3f} × ${current:.2f} = [yellow]${after_demand:.2f}[/yellow]")
+            for key, discount, contrib in active_factors:
+                console.print(f"           {key:<12} {discount:.3f}  {contrib}")
+        else:
+            console.print(f"[bold yellow]DEMAND[/bold yellow]  [dim]inactive (no bookings in window)[/dim]  →  [dim]${after_demand:.2f}[/dim]")
+
+        # ── EVENT ──────────────────────────────────────────────────────────
+        ev = detail["event"]
+        ev_factors = ev.get("factors", {})
+        local_evt = ev_factors.get("local_event", "1.0")
+        event_factor = ev_factors.get("event_factor", "1.0")
+        hp = detail.get("holiday_proximity")
+        current = after_demand
+        console.print(f"[bold magenta]EVENT[/bold magenta]   local={local_evt}  factor={event_factor}")
+        if hp:
+            console.print(f"           holiday      : {hp['near_holiday']} ({hp['days_away']} days away, buffer={hp['buffer_applied']})")
+        # Event strategy suggested_price is its independent recommendation
+        # Show the event price as a multiplier on current
+        ev_price = ev.get("suggested_price", current)
+        ev_mult = ev_price / current if current > 0 else 1.0
+        console.print(f"           → event price : ${ev_price:.2f}  (event mult on current: {ev_mult:.3f})")
+
+        # ── YIELD ──────────────────────────────────────────────────────────
+        yt = detail["yield"]
+        yt_price = yt.get("suggested_price", current)
+        yt_mult = yt_price / ev_price if ev_price > 0 else 1.0
+        console.print(f"[bold blue]YIELD[/bold blue]      → ${yt_price:.2f}  (yield mult: {yt_mult:.3f})")
+        yt_factors = yt.get("factors", {})
+        for k, v in yt_factors.items():
+            if v is not None:
+                console.print(f"           {k:<20}: {v}")
+
+        # ── COMPETITOR ──────────────────────────────────────────────────────
+        co = detail["competitor"]
+        co_price = co.get("suggested_price")
+        co_note = co.get("note", "")
+        if co_price is not None:
+            console.print(f"[bold]COMPETITOR → ${co_price:.2f}[/bold]")
+        else:
+            console.print(f"[bold]COMPETITOR → [dim]skipped (no data)[/dim][/bold]")
+        if co_note:
+            console.print(f"           [dim]{co_note}[/dim]")
+
+        # ── FINAL ───────────────────────────────────────────────────────────
+        console.print(f"\n[bold white on green]FINAL PRICE[/bold white on green]  ${detail['final_price']:.2f}  "
+                      f"(confidence {detail['confidence']:.0%})")
+        console.print()
+
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show current iGMS prices vs recommended prices."""
@@ -68,6 +259,8 @@ def cmd_status(args: argparse.Namespace) -> None:
             console.print(f"  [red]Calendar error: {e}[/red]")
             continue
 
+        bookings = _fetch_bookings_cached(client, uid, from_date, to_date)
+
         engine_local = PricingEngine()
 
         table = Table(show_header=True)
@@ -88,7 +281,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 property_uid=uid,
                 date=date,
                 calendar_entry=entry,
-                bookings_in_window=[],
+                bookings_in_window=bookings,
                 config=config.__dict__,
             )
             delta = rec.final_price - current
@@ -127,12 +320,13 @@ def cmd_run(args: argparse.Namespace) -> None:
             continue
         try:
             calendar = client.get_calendar(uid, from_date, to_date)
+            bookings = _fetch_bookings_cached(client, uid, from_date, to_date)
             prices = engine.compute_range(
                 property_uid=uid,
                 from_date=from_date,
                 to_date=to_date,
                 calendar_data=calendar.get("data", []),
-                bookings_in_window=[],
+                bookings_in_window=bookings,
                 config=config.__dict__,
             )
             results[prop.get("name", uid)] = prices
@@ -174,6 +368,8 @@ def cmd_push(args: argparse.Namespace) -> None:
                 console.print(f"  [yellow]No calendar entries for {uid}[/yellow]")
                 continue
 
+            bookings = _fetch_bookings_cached(client, uid, from_date, to_date)
+
             for listing_uid, entries in by_listing.items():
                 listing_name = entries[0].get("listing_name", listing_uid) if entries else listing_uid
                 console.print(f"\n  Listing: {listing_name} ({listing_uid})")
@@ -185,7 +381,7 @@ def cmd_push(args: argparse.Namespace) -> None:
                             property_uid=uid,
                             date=entry.get("date", ""),
                             calendar_entry=entry,
-                            bookings_in_window=[],
+                            bookings_in_window=bookings,
                             config=config.__dict__,
                         )
                         console.print(
@@ -196,13 +392,11 @@ def cmd_push(args: argparse.Namespace) -> None:
 
                 for entry in entries:
                     date = entry.get("date", "")
-                    current_price = entry.get("price", 0)
-
                     rec = engine.compute_price(
                         property_uid=uid,
                         date=date,
                         calendar_entry=entry,
-                        bookings_in_window=[],
+                        bookings_in_window=bookings,
                         config=config.__dict__,
                     )
 
@@ -252,8 +446,16 @@ def cmd_run_config(args: argparse.Namespace) -> None:
     merged = store.merge_with_env_defaults(args.property, config.__dict__)
     engine = PricingEngine()
 
-    from_date = datetime.now().strftime("%Y-%m-%d")
-    to_date = (datetime.now() + timedelta(days=args.days or config.pricing_window_days)).strftime("%Y-%m-%d")
+    # CLI --from / --to override default date range
+    if getattr(args, "from_date", None):
+        from_date = args.from_date
+    else:
+        from_date = datetime.now().strftime("%Y-%m-%d")
+
+    if getattr(args, "to_date", None):
+        to_date = args.to_date
+    else:
+        to_date = (datetime.now() + timedelta(days=args.days or config.pricing_window_days)).strftime("%Y-%m-%d")
 
     client = PricingClient.from_env()
     try:
@@ -262,12 +464,14 @@ def cmd_run_config(args: argparse.Namespace) -> None:
         console.print(f"[red]Calendar fetch failed: {e}[/red]")
         calendar = {"data": []}
 
+    bookings = _fetch_bookings_cached(client, args.property, from_date, to_date)
+
     prices = engine.compute_range(
         property_uid=args.property,
         from_date=from_date,
         to_date=to_date,
         calendar_data=calendar.get("data", []),
-        bookings_in_window=[],
+        bookings_in_window=bookings,
         config=merged,
     )
 
@@ -293,6 +497,12 @@ def cmd_run_config(args: argparse.Namespace) -> None:
 
     console.print(f"\n[bold cyan]{args.property}[/bold cyan] ({from_date} → {to_date})")
     console.print(table)
+
+    # CSV export
+    export_csv = getattr(args, "export_csv", False)
+    if export_csv:
+        csv_path = _write_prices_csv(prices, from_date)
+        console.print(f"\n[green]CSV exported to {csv_path}[/green]")
 
 
 def cmd_availability(args: argparse.Namespace) -> None:
@@ -331,7 +541,7 @@ def cmd_availability(args: argparse.Namespace) -> None:
             property_uid=args.property,
             date=date,
             calendar_entry=entry,
-            bookings_in_window=[],
+            bookings_in_window=bookings,
             config=merged,
         )
         avail_sym = "[green]✓[/green]" if avail.is_available else "[red]✗[/red]"
@@ -449,6 +659,8 @@ def cmd_push_config(args: argparse.Namespace) -> None:
     from_date = datetime.now().strftime("%Y-%m-%d")
     to_date = (datetime.now() + timedelta(days=config.pricing_window_days)).strftime("%Y-%m-%d")
 
+    bookings = _fetch_bookings_cached(client, args.property, from_date, to_date)
+
     try:
         calendar = client.get_calendar(args.property, from_date, to_date)
     except Exception as e:
@@ -473,7 +685,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
                 property_uid=args.property,
                 date=date,
                 calendar_entry=entry,
-                bookings_in_window=[],
+                bookings_in_window=bookings,
                 config=merged,
             )
 
@@ -487,7 +699,7 @@ def cmd_push_config(args: argparse.Namespace) -> None:
                 property_uid=args.property,
                 date=date,
                 calendar_entry=entry,
-                bookings_in_window=[],
+                bookings_in_window=bookings,
                 config=merged,
             )
 
@@ -547,6 +759,9 @@ def main() -> None:
     run_cfg = sub.add_parser("run-config", help="Load property JSON, run engine, print results")
     run_cfg.add_argument("--property", required=True, help="Property UID")
     run_cfg.add_argument("--days", type=int, help="Number of days (default from config)")
+    run_cfg.add_argument("--from", dest="from_date", metavar="FROM", help="Start date (YYYY-MM-DD)")
+    run_cfg.add_argument("--to", dest="to_date", metavar="TO", help="End date (YYYY-MM-DD)")
+    run_cfg.add_argument("--export-csv", action="store_true", help="Export results to CSV")
     run_cfg.set_defaults(func=cmd_run_config)
 
     avail = sub.add_parser("availability", help="Check availability rules for next N days")
@@ -564,6 +779,11 @@ def main() -> None:
     push_cfg.add_argument("--dry-run", action="store_true")
     push_cfg.add_argument("--force", action="store_true", help="Push even for blocked dates")
     push_cfg.set_defaults(func=cmd_push_config)
+
+    debug = sub.add_parser("debug-day", help="Factor breakdown for a single day across all properties")
+    debug.add_argument("--date", required=True, help="Target date (YYYY-MM-DD)")
+    debug.add_argument("--property", action="append", dest="property", help="Property UID (repeatable; defaults to Frosty Pines + Freedom Place)")
+    debug.set_defaults(func=cmd_debug_day)
 
     args = parser.parse_args()
     args.func(args)

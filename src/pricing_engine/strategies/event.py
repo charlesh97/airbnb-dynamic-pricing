@@ -2,45 +2,57 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date as DateClass
+from datetime import datetime, timedelta
 from typing import Any
 
 from .base import PriceRecommendation, PricingStrategy
 
 
-# Default seasonal multiplier table (month-day) -> multiplier
-# Multipliers > 1.0 = premium; < 1.0 = discount
-DEFAULT_SEASONAL: dict[str, float] = {
-    # Holidays
-    "12-24": 1.40,  # Christmas Eve
-    "12-25": 1.60,  # Christmas
-    "12-31": 1.50,  # New Year's Eve
-    "01-01": 1.40,  # New Year's Day
-    "07-04": 1.30,  # Independence Day
-    "11-28": 1.35,  # Thanksgiving
-    "11-29": 1.25,  # Thanksgiving weekend
-    "12-23": 1.30,  # Christmas week
-    "12-26": 1.30,  # Christmas week
-    "12-27": 1.30,
-    "12-28": 1.30,
-    "12-29": 1.35,
-    "12-30": 1.40,
-    # Summer peak
-    "06-01": 1.10,
-    "06-15": 1.15,
-    "07-01": 1.20,
-    "07-15": 1.25,
-    "08-01": 1.20,
-    "08-15": 1.15,
-    "08-31": 1.10,
-    # Spring break
-    "03-15": 1.20,
-    "03-16": 1.25,
-    "03-22": 1.20,
+# ─── Holiday Calendar ──────────────────────────────────────────────────────────
+
+HOLIDAY_CALENDAR = [
+    # Christmas/New Year
+    {"name": "Christmas Eve",     "date": "12-24", "multiplier": 1.50, "buffer_days": 3,  "buffer_slope": 0.05},
+    {"name": "Christmas Day",     "date": "12-25", "multiplier": 1.60, "buffer_days": 3,  "buffer_slope": 0.05},
+    {"name": "New Year's Eve",    "date": "12-31", "multiplier": 1.60, "buffer_days": 3,  "buffer_slope": 0.05},
+    {"name": "New Year's Day",    "date": "01-01", "multiplier": 1.50, "buffer_days": 3,  "buffer_slope": 0.05},
+    # July 4th
+    {"name": "July 4th",          "date": "07-04", "multiplier": 1.40, "buffer_days": 2,  "buffer_slope": 0.07},
+    # Thanksgiving (2026)
+    {"name": "Thanksgiving",       "date": "11-26", "multiplier": 1.45, "buffer_days": 4,  "buffer_slope": 0.05},
+    {"name": "Thanksgiving Fri",   "date": "11-27", "multiplier": 1.35, "buffer_days": 0,  "buffer_slope": 0.0},
+    {"name": "Thanksgiving Sun",   "date": "11-29", "multiplier": 1.25, "buffer_days": 0,  "buffer_slope": 0.0},
+    # MLK Weekend (3rd Monday Jan)
+    {"name": "MLK Weekend",        "date": "01-19", "multiplier": 1.25, "buffer_days": 2, "buffer_slope": 0.04},
+    # Presidents' Day Weekend (3rd Monday Feb)
+    {"name": "Presidents' Day",    "date": "02-16", "multiplier": 1.25, "buffer_days": 2,  "buffer_slope": 0.04},
+    # Memorial Day (last Monday May)
+    {"name": "Memorial Day",       "date": "05-25", "multiplier": 1.20, "buffer_days": 2,  "buffer_slope": 0.05},
+    # Labor Day (1st Monday Sep)
+    {"name": "Labor Day",          "date": "09-07", "multiplier": 1.20, "buffer_days": 2,  "buffer_slope": 0.05},
+    # Ski school breaks
+    {"name": "President's Week",   "date": "02-13", "multiplier": 1.30, "buffer_days": 3,  "buffer_slope": 0.04},
+    {"name": "Spring Break",       "date": "03-20", "multiplier": 1.20, "buffer_days": 3,  "buffer_slope": 0.04},
+]
+
+# New monthly seasonal multipliers (updated spec)
+SEASONAL_MONTHS: dict[str, float] = {
+    "01": 1.35,  # Jan — peak ski
+    "02": 1.30,  # Feb — peak ski
+    "03": 1.15,  # Mar — ski shoulder
+    "04": 0.80,  # Apr — off-season
+    "05": 0.75,  # May — off-season
+    "06": 1.00,  # Jun — normal
+    "07": 1.20,  # Jul — summer peak
+    "08": 1.15,  # Aug — summer peak
+    "09": 0.90,  # Sep — off-season
+    "10": 0.80,  # Oct — off-season
+    "11": 0.85,  # Nov — off-season (pre-holiday)
+    "12": 1.40,  # Dec — holiday peak
 }
 
 # Default DOW multipliers (applied on top of seasonal)
-# None means no DOW-specific adjustment (use seasonal only)
 DEFAULT_DOW_MULTIPLIERS: dict[str, float] = {
     "mon": 1.0,
     "tue": 1.0,
@@ -52,6 +64,70 @@ DEFAULT_DOW_MULTIPLIERS: dict[str, float] = {
 }
 
 DEFAULT_WEEKEND_MULTIPLIER = 1.15
+
+# Legacy default seasonal multiplier table (per-MM-DD, for fallback)
+DEFAULT_SEASONAL: dict[str, float] = {
+    "12-24": 1.40, "12-25": 1.60, "12-31": 1.50,
+    "01-01": 1.40, "07-04": 1.30,
+    "11-28": 1.35, "11-29": 1.25,
+    "12-23": 1.30, "12-26": 1.30, "12-27": 1.30,
+    "12-28": 1.30, "12-29": 1.35, "12-30": 1.40,
+    "06-01": 1.10, "06-15": 1.15, "07-01": 1.20,
+    "07-15": 1.25, "08-01": 1.20, "08-15": 1.15,
+    "08-31": 1.10, "03-15": 1.20, "03-16": 1.25, "03-22": 1.20,
+}
+
+
+def _holiday_info(target: datetime) -> tuple[bool, str | None, float, bool]:
+    """Check if date is a holiday or within buffer of one.
+
+    Returns (is_holiday, holiday_name, holiday_multiplier, buffer_applied).
+    When a date falls on multiple holidays (e.g. Dec 25 = Christmas Eve buffer + Christmas Day),
+    the highest-multiplier match wins. Exact matches (diff=0) take precedence over buffer matches.
+    """
+    target_ord = target.date().toordinal()
+    default_buffer = 3
+
+    best: tuple[float, bool, str | None, float] = (0.0, False, None, 1.0)  # (multiplier, buffer_applied, name, raw_mult)
+
+    for evt in HOLIDAY_CALENDAR:
+        evt_parts = evt["date"].split("-")
+        if len(evt_parts) != 2:
+            continue
+        try:
+            evt_ord = DateClass(target.year, int(evt_parts[0]), int(evt_parts[1])).toordinal()
+        except ValueError:
+            continue
+
+        diff = abs(target_ord - evt_ord)
+        buffer_days = evt.get("buffer_days", default_buffer)
+
+        if diff == 0:
+            # Exact holiday match — takes absolute precedence
+            return True, evt["name"], evt["multiplier"], False
+
+        if buffer_days > 0 and diff <= buffer_days:
+            slope = evt.get("buffer_slope", 0.05)
+            buffered_mult = evt["multiplier"] * (1.0 - slope * diff)
+            if buffered_mult > best[0]:
+                best = (buffered_mult, True, evt["name"], evt["multiplier"])
+
+    if best[0] > 0:
+        return True, best[2], round(best[0], 4), best[1]
+
+    return False, None, 1.0, False
+
+
+def _is_peak_season(target: datetime) -> bool:
+    """Peak: Dec-Feb weekends or Jul-Aug."""
+    month = int(target.strftime("%m"))
+    weekday = target.weekday()
+    is_weekend = weekday in (4, 5)
+    if month in (12, 1, 2) and is_weekend:
+        return True
+    if month in (7, 8):
+        return True
+    return False
 
 
 class EventStrategy(PricingStrategy):
@@ -68,51 +144,100 @@ class EventStrategy(PricingStrategy):
         bookings_in_window: list[dict[str, Any]],
         config: dict[str, Any],
     ) -> PriceRecommendation:
-        base = self._base_price(config, property_uid)
         target = datetime.strptime(date, "%Y-%m-%d")
+        # Base price from seasonal_base_prices if available
+        base = self._seasonal_base_price(config, property_uid, target)
         month_day = target.strftime("%m-%d")
-        dow = target.strftime("%a").lower()  # 'mon', 'tue', etc.
-        weekday = target.weekday()  # 0=Mon, 6=Sun
+        month_key = target.strftime("%m")
+        dow = target.strftime("%a").lower()
+        weekday = target.weekday()
+        is_weekend_night = weekday in (4, 5)
 
-        # 1. Seasonal multiplier — from property config or default
-        seasonal = config.get("seasonal_multipliers", DEFAULT_SEASONAL)
-        multiplier = seasonal.get(month_day, 1.0)
+        # 1. Monthly seasonal multiplier (from config or spec default)
+        seasonal_months = config.get("seasonal_months")
+        if seasonal_months and month_key in seasonal_months:
+            seasonal_base = seasonal_months[month_key]
+            seasonal_source = "config"
+        elif month_key in SEASONAL_MONTHS:
+            seasonal_base = SEASONAL_MONTHS[month_key]
+            seasonal_source = "spec"
+        else:
+            seasonal_base = 1.0
+            seasonal_source = "none"
 
-        # Event overrides take precedence
-        events = config.get("event_overrides", {})
-        if month_day in events:
-            multiplier = events[month_day]
+        # 2. Holiday check — overrides multiplier if holiday
+        is_holiday, holiday_name, holiday_mult, buffer_applied = _holiday_info(target)
 
-        # 2. DOW multiplier — from property config or default
+        if is_holiday:
+            # Holiday takes precedence over seasonal month
+            seasonal_multiplier = holiday_mult
+        else:
+            seasonal_multiplier = seasonal_base
+
+        # 3. DOW multiplier
         dow_mults = config.get("dow_multipliers", DEFAULT_DOW_MULTIPLIERS)
         dow_multiplier = dow_mults.get(dow, 1.0)
-        multiplier *= dow_multiplier
 
-        # 3. Weekend premium (Fri/Sat nights) — only if not embedded in DOW multiplier
-        # Use weekend_multiplier override if provided; otherwise respect DOW settings
-        # If DOW has an explicit fri/sat multiplier > 1, skip the extra weekend bump
+        # 4. Weekend premium (if DOW has no explicit fri/sat multiplier > 1.0)
         weekend_override = config.get("weekend_multiplier")
         if weekend_override is not None:
             if dow not in dow_mults or dow_mults.get(dow, 1.0) == 1.0:
-                # DOW had no explicit adjustment — apply weekend override
-                if weekday in (4, 5):  # Fri, Sat
-                    multiplier *= weekend_override
+                if is_weekend_night:
+                    dow_multiplier *= weekend_override
         else:
-            # No override — use default behavior if DOW is still at 1.0
             if dow == "fri" and dow_mults.get("fri", 1.0) == 1.0:
-                multiplier *= DEFAULT_WEEKEND_MULTIPLIER
+                dow_multiplier *= DEFAULT_WEEKEND_MULTIPLIER
             elif dow == "sat" and dow_mults.get("sat", 1.0) == 1.0:
-                multiplier *= DEFAULT_WEEKEND_MULTIPLIER
+                dow_multiplier *= DEFAULT_WEEKEND_MULTIPLIER
 
-        # 4. Far-future discount
-        far_future_cfg = config.get("far_future", {})
+        # 5. Far-future discount
+        far_future_cfg = config.get("demand_config", {}).get("far_future", {})
+        far_future_applied = False
         if far_future_cfg:
-            window_days = far_future_cfg.get("window_days", 60)
-            discount = far_future_cfg.get("discount", 0.90)
-            from datetime import timedelta
+            ff_window = far_future_cfg.get("window_days", 60)
+            ff_discount = far_future_cfg.get("discount", 0.90)
             days_out = (target.date() - datetime.now().date()).days
-            if days_out > window_days:
-                multiplier *= discount
+            if days_out > ff_window:
+                seasonal_multiplier *= ff_discount
+                far_future_applied = True
+
+        # 6. Local events (per-date overrides from property JSON)
+        # Skip auto-injected holidays to avoid double-counting with HOLIDAY_CALENDAR
+        local_events = config.get("local_events", []) if not is_holiday else []
+        local_event_applied: str | None = None
+        if local_events:
+            local_events_map = {e["date"]: e["factor"] for e in local_events if e.get("date")}
+            if date in local_events_map:
+                local_factor = local_events_map[date]
+                seasonal_multiplier *= local_factor
+                local_event_applied = f"{local_factor}"
+
+        # 7. Build factors dict
+        is_peak = _is_peak_season(target)
+
+        factors: dict[str, Any] = {
+            "base_price": base,
+            "seasonal_multiplier": round(seasonal_multiplier, 3),
+            "dow_multiplier": round(dow_multiplier, 3),
+            "month_day": month_day,
+            "month": month_key,
+            "dow": dow,
+            "day_of_week": weekday,
+            "is_weekend_night": is_weekend_night,
+            "seasonal_source": seasonal_source,
+            "far_future_discount_applied": far_future_applied,
+            "local_event_applied": local_event_applied,
+            "is_peak_season": is_peak,
+            "is_holiday_period": is_holiday,
+            "holiday_name": holiday_name,
+            "holiday_buffer_applied": buffer_applied,
+        }
+
+        if is_holiday:
+            factors["holiday_multiplier"] = round(holiday_mult, 3)
+
+        # Apply DOW on top of seasonal
+        multiplier = seasonal_multiplier * dow_multiplier
 
         raw_price = base * multiplier
         price = self._clamp(raw_price, config, property_uid)
@@ -121,14 +246,5 @@ class EventStrategy(PricingStrategy):
             strategy_name=self.name,
             suggested_price=round(price, 2),
             confidence=0.85 if multiplier != 1.0 else 0.50,
-            factors={
-                "base_price": base,
-                "seasonal_multiplier": round(multiplier / max(dow_multiplier, 1e-9), 3),
-                "dow_multiplier": round(dow_multiplier, 3),
-                "month_day": month_day,
-                "dow": dow,
-                "day_of_week": weekday,
-                "is_weekend_night": weekday in (4, 5),
-                "far_future_discount_applied": far_future_cfg and (target.date() - datetime.now().date()).days > far_future_cfg.get("window_days", 60),
-            },
+            factors=factors,
         )

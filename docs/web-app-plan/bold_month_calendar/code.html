@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lumina Resorts - Calendar</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-on-surface": "#eff1f3",
+                        "surface": "#f7f9fb",
+                        "on-surface-variant": "#404752",
+                        "primary-container": "#2196f3",
+                        "surface-dim": "#d8dadc",
+                        "on-secondary-fixed-variant": "#930005",
+                        "on-secondary-fixed": "#410001",
+                        "on-error-container": "#93000a",
+                        "tertiary-container": "#00a0b5",
+                        "tertiary": "#006876",
+                        "on-secondary-container": "#fffbff",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#d1e4ff",
+                        "error-container": "#ffdad6",
+                        "on-primary-container": "#002c4f",
+                        "surface-variant": "#e0e3e5",
+                        "secondary": "#b81311",
+                        "secondary-container": "#dc3128",
+                        "on-secondary": "#ffffff",
+                        "outline": "#707883",
+                        "tertiary-fixed-dim": "#44d8f1",
+                        "inverse-surface": "#2d3133",
+                        "surface-container-high": "#e6e8ea",
+                        "primary-fixed-dim": "#9ecaff",
+                        "on-primary-fixed": "#001d36",
+                        "tertiary-fixed": "#a1efff",
+                        "secondary-fixed": "#ffdad5",
+                        "on-error": "#ffffff",
+                        "background": "#f7f9fb",
+                        "surface-tint": "#0061a4",
+                        "on-tertiary-fixed": "#001f25",
+                        "on-primary-fixed-variant": "#00497d",
+                        "on-tertiary-container": "#003037",
+                        "surface-container-low": "#f2f4f6",
+                        "on-background": "#191c1e",
+                        "on-tertiary-fixed-variant": "#004e59",
+                        "outline-variant": "#bfc7d4",
+                        "on-tertiary": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "primary": "#0061a4",
+                        "surface-bright": "#f7f9fb",
+                        "surface-container-highest": "#e0e3e5",
+                        "error": "#ba1a1a",
+                        "inverse-primary": "#9ecaff",
+                        "secondary-fixed-dim": "#ffb4a9",
+                        "surface-container-lowest": "#ffffff",
+                        "on-surface": "#191c1e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "margin-desktop": "64px",
+                        "liquid-padding": "32px",
+                        "margin-mobile": "20px",
+                        "base-unit": "8px"
+                    },
+                    "fontFamily": {
+                        "price-display": ["Hanken Grotesk"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Hanken Grotesk"],
+                        "display-lg": ["Plus Jakarta Sans"],
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "price-display": ["20px", { "lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex antialiased">
+<!-- Desktop SideNavBar -->
+<nav class="bg-surface-container-lowest dark:bg-inverse-surface shadow-[20px_0_40px_rgba(33,150,243,0.05)] docked h-screen left-0 w-64 rounded-r-xl hidden lg:flex flex-col py-8 space-y-4 fixed z-40 bg-surface-container-low/50 backdrop-blur-xl">
+<div class="px-6 mb-8">
+<h2 class="font-headline-lg text-primary text-[24px] font-bold tracking-tight">Lumina Resorts</h2>
+</div>
+<div class="px-6 mb-8 flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-surface-variant overflow-hidden flex items-center justify-center">
+<span class="material-symbols-outlined text-outline">account_circle</span>
+</div>
+<div>
+<p class="font-label-sm text-on-surface-variant">Oceanview Suite</p>
+<p class="font-body-md text-sm text-primary font-medium">Premium Tier</p>
+</div>
+</div>
+<div class="flex-1 flex flex-col space-y-2 px-4 font-body-md text-body-md text-primary dark:text-primary-fixed">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                Dashboard
+            </a>
+<!-- Active State -->
+<a class="flex items-center gap-3 px-4 py-3 bg-primary-container text-on-primary-container rounded-full mx-2 font-bold hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined fill" style="font-variation-settings: 'FILL' 1;">calendar_month</span>
+                Calendar
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined">bed</span>
+                Inventory
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined">payments</span>
+                Revenue
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 hover:bg-primary/10 transition-all scale-98 duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+                Settings
+            </a>
+</div>
+<div class="px-6 py-4">
+<button class="w-full bg-primary text-on-primary py-3 rounded-full font-label-sm font-bold shadow-md hover:bg-surface-tint transition-colors scale-98 active:scale-95">
+                Add Property
+            </button>
+</div>
+<div class="mt-auto px-4 space-y-2 font-body-md text-body-md">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 transition-all" href="#">
+<span class="material-symbols-outlined">help</span>
+                Help
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high rounded-full mx-2 transition-all" href="#">
+<span class="material-symbols-outlined">logout</span>
+                Sign Out
+            </a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 lg:ml-64 relative min-h-screen pb-24 lg:pb-0 overflow-x-hidden">
+<!-- Mobile TopAppBar (Hidden on lg) -->
+<header class="lg:hidden flex justify-between items-center w-full px-margin-mobile py-4 bg-surface/80 dark:bg-on-surface/80 backdrop-blur-xl docked full-width top-0 z-50 shadow-[0_20px_40px_rgba(0,97,164,0.08)]">
+<span class="font-display-lg text-display-lg text-primary tracking-tight text-[28px]">Lumina Resorts</span>
+<div class="flex items-center gap-4 text-primary dark:text-primary-fixed-dim">
+<button class="hover:text-primary transition-colors duration-300 scale-98 active:scale-95 transition-transform"><span class="material-symbols-outlined">notifications</span></button>
+<button class="hover:text-primary transition-colors duration-300 scale-98 active:scale-95 transition-transform"><span class="material-symbols-outlined">account_circle</span></button>
+</div>
+</header>
+<!-- Calendar Hero & Container -->
+<div class="px-margin-mobile md:px-margin-desktop pt-8 md:pt-16 max-w-7xl mx-auto">
+<!-- High-Impact Month Header -->
+<div class="flex items-center justify-between mb-8 md:mb-16">
+<button class="w-12 h-12 flex items-center justify-center rounded-full hover:bg-surface-container-high text-primary transition-colors">
+<span class="material-symbols-outlined text-3xl">chevron_left</span>
+</button>
+<div class="text-center">
+<h1 class="font-display-lg text-[64px] md:text-[140px] leading-none text-primary font-extrabold tracking-tighter opacity-90" style="letter-spacing: -0.04em;">
+                        OCTOBER
+                    </h1>
+<p class="font-body-md text-outline font-medium tracking-widest uppercase mt-2">2023 Overview</p>
+</div>
+<button class="w-12 h-12 flex items-center justify-center rounded-full hover:bg-surface-container-high text-primary transition-colors">
+<span class="material-symbols-outlined text-3xl">chevron_right</span>
+</button>
+</div>
+<!-- Calendar Grid Container (Fluid Liquid Box) -->
+<div class="bg-surface-container-lowest rounded-[40px] p-4 md:p-liquid-padding shadow-[0_30px_60px_rgba(33,150,243,0.06)] relative z-10">
+<!-- Weekdays -->
+<div class="grid grid-cols-7 gap-2 md:gap-4 mb-4 text-center">
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Sun</div>
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Mon</div>
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Tue</div>
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Wed</div>
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Thu</div>
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Fri</div>
+<div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Sat</div>
+</div>
+<!-- Dates Grid -->
+<div class="grid grid-cols-7 gap-2 md:gap-4 auto-rows-fr">
+<!-- Blank starting days -->
+<div class="hidden md:block min-h-[80px] md:min-h-[120px] rounded-2xl bg-transparent"></div>
+<div class="hidden md:block min-h-[80px] md:min-h-[120px] rounded-2xl bg-transparent"></div>
+<!-- Date Cards (Material Flat Cards) -->
+<!-- Day 1 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">1</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 2 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">2</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 3 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">3</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$255</span>
+</div>
+</div>
+<!-- Day 4 (High Demand - Soft Red Glow/Dot) -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<div class="flex justify-between items-start">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">4</span>
+<div class="w-2 h-2 rounded-full bg-secondary-container shadow-[0_0_8px_rgba(220,49,40,0.6)]"></div>
+</div>
+<div class="text-right mt-auto">
+<span class="font-price-display text-secondary-container text-sm md:text-lg">$310</span>
+</div>
+</div>
+<!-- Day 5 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">5</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 6 (Selected / Fluid Liquid Blue) -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-primary text-on-primary transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer shadow-[0_10px_30px_rgba(33,150,243,0.3)] scale-[1.02] transform origin-center z-10 border-none overflow-hidden">
+<!-- Liquid background effect -->
+<div class="absolute inset-0 bg-gradient-to-br from-primary via-primary to-tertiary-container opacity-80 pointer-events-none"></div>
+<div class="relative z-10 flex justify-between items-start">
+<span class="font-headline-lg-mobile text-on-primary text-sm md:text-lg">6</span>
+<span class="material-symbols-outlined text-sm md:text-base opacity-80">check_circle</span>
+</div>
+<div class="relative z-10 text-right mt-auto">
+<span class="font-price-display text-on-primary text-sm md:text-lg font-bold">$240</span>
+</div>
+</div>
+<!-- Day 7 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">7</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Row 2 -->
+<!-- Day 8 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">8</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 9 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">9</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 10 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">10</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 11 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">11</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$260</span>
+</div>
+</div>
+<!-- Day 12 (High Demand) -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<div class="flex justify-between items-start">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">12</span>
+<div class="w-2 h-2 rounded-full bg-secondary-container shadow-[0_0_8px_rgba(220,49,40,0.6)]"></div>
+</div>
+<div class="text-right mt-auto">
+<span class="font-price-display text-secondary-container text-sm md:text-lg">$350</span>
+</div>
+</div>
+<!-- Day 13 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">13</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Day 14 -->
+<div class="group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface hover:bg-surface-container-high transition-all duration-300 p-2 md:p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-surface-variant">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">14</span>
+<div class="text-right mt-auto">
+<span class="font-price-display text-primary text-sm md:text-lg">$240</span>
+</div>
+</div>
+<!-- Add remaining placeholder days for visual completion to avoid a huge wall of repeated code, keeping it minimal and impactful -->
+<div class="opacity-50 group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface p-2 md:p-4 flex flex-col justify-between cursor-default">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">15</span>
+</div>
+<div class="opacity-50 group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface p-2 md:p-4 flex flex-col justify-between cursor-default">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">16</span>
+</div>
+<div class="opacity-50 group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface p-2 md:p-4 flex flex-col justify-between cursor-default">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">17</span>
+</div>
+<div class="opacity-50 group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface p-2 md:p-4 flex flex-col justify-between cursor-default">
+<span class="font-headline-lg-mobile text-on-surface-variant text-sm md:text-lg">18</span>
+</div>
+<div class="col-span-3 opacity-0 group relative min-h-[80px] md:min-h-[120px] rounded-2xl md:rounded-[24px] bg-surface"></div>
+</div>
+</div>
+<!-- Contextual Action (Glassmorphism card below calendar) -->
+<div class="mt-8 mx-auto max-w-xl bg-surface/50 backdrop-blur-md rounded-2xl p-6 flex items-center justify-between shadow-sm border border-surface-variant">
+<div>
+<h3 class="font-headline-lg-mobile text-on-surface text-lg">Selected: Oct 6th</h3>
+<p class="font-body-md text-on-surface-variant text-sm mt-1">Oceanview Suite • 1 Night</p>
+</div>
+<button class="bg-primary text-on-primary px-8 py-3 rounded-full font-label-sm font-bold shadow-md hover:bg-surface-tint transition-all scale-98 active:scale-95">
+                    Modify Rate
+                </button>
+</div>
+</div>
+</main>
+<!-- Mobile BottomNavBar (Hidden on lg) -->
+<nav class="lg:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-3 pb-safe bg-surface/90 dark:bg-on-surface/90 backdrop-blur-lg rounded-t-xl shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-50">
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined mb-1">home</span>
+<span class="font-label-sm text-label-sm">Home</span>
+</a>
+<!-- Active State -->
+<a class="flex flex-col items-center justify-center bg-primary text-on-primary rounded-full px-6 py-1 active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined mb-1 fill" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+<span class="font-label-sm text-label-sm">Calendar</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined mb-1">sell</span>
+<span class="font-label-sm text-label-sm">Rates</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant active:bg-surface-container-high scale-90 active:scale-75 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined mb-1">menu</span>
+<span class="font-label-sm text-label-sm">More</span>
+</a>
+</nav>
+</body></html>

@@ -1,7 +1,10 @@
 """Tests for AvailabilityStrategy."""
 
 import unittest
+import sys
 from datetime import datetime, timedelta
+
+sys.path.insert(0, "src")
 
 from pricing_engine.strategies.availability import (
     AvailabilityStrategy,

@@ -1,0 +1,84 @@
+{
+  "property_uid": "645841896772032198",
+  "name": "Freedom Place — 3335 Freedom Pl",
+  "platforms": [
+    "airbnb"
+  ],
+  "listing_uids": {
+    "airbnb": "645841896772032198_airbnb_209713065"
+  },
+  "bedrooms": 3,
+  "bathrooms": 2,
+  "beds": 4,
+  "sleeps": 8,
+  "latitude": 0,
+  "longitude": 0,
+  "base_price": 155.0,
+  "min_price": 75.0,
+  "max_price": 600.0,
+  "quality_score": 0.82,
+  "strategy_weights": {
+    "demand": 0.5,
+    "event": 0.375,
+    "competitor": 0.0,
+    "yield": 0.125
+  },
+  "availability": {
+    "booking_window_days": 120,
+    "min_stay": {
+      "default": 2,
+      "overrides": []
+    },
+    "checkin_days": {
+      "blocked": []
+    },
+    "checkout_days": {
+      "blocked": []
+    },
+    "block_day_before": false,
+    "block_day_after": false
+  },
+  "seasonal_months": {
+    "01": 1.0,
+    "02": 1.0,
+    "03": 1.0,
+    "04": 1.0,
+    "05": 1.0,
+    "06": 1.0,
+    "07": 1.0,
+    "08": 1.0,
+    "09": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0
+  },
+  "dow_multipliers": {
+    "fri": 1.1,
+    "sat": 1.1,
+    "sun": 1.0,
+    "mon": 1.0,
+    "tue": 1.0,
+    "wed": 1.0,
+    "thu": 1.0
+  },
+  "local_events": [],
+  "local_events_config": {},
+  "demand_config": {
+    "demand_window_days": 14,
+    "velocity_window_days": 7,
+    "velocity_factor": 0.15,
+    "occupancy_factor": 0.3,
+    "far_future": {
+      "window_days": 60,
+      "discount": 0.9
+    },
+    "last_minute": {
+      "window_days": 7,
+      "discount": 0.92,
+      "threshold_occupancy": 0.5
+    }
+  },
+  "holiday_buffer_days": 3,
+  "state": "VA",
+  "holiday_buffer_slope": 0.05
+}

@@ -1,0 +1,11 @@
+[project]
+name = "igms-dashboard"
+version = "0.1.0"
+description = "iGMS Dynamic Pricing Dashboard"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "jinja2>=3.1.0",
+    "holidays>=0.83",
+]

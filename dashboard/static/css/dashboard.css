@@ -1,0 +1,292 @@
+/* ── Material Symbols ─────────────────────────────────────────────────────── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ── Property switcher (in top bar) ─────────────────────────────────────── */
+.property-switcher {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23404752' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+/* ── Day cells in calendar grid ────────────────────────────────────────── */
+.day-cell {
+  position: relative;
+  min-height: 100px;
+  border-radius: 16px;
+  background: #ffffff;
+  transition: all 0.3s;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px;
+}
+.day-cell:hover { background: #f2f4f6; }
+.day-cell.empty { background: transparent; cursor: default; }
+
+.day-cell-num {
+  font-size: 14px;
+  font-weight: 600;
+  color: #404752;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.day-cell-price {
+  font-family: 'Hanken Grotesk', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #0061a4;
+  text-align: right;
+  margin-top: auto;
+}
+.day-cell-price.high-demand {
+  color: #b81311;
+}
+
+/* Holiday dot */
+.holiday-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #dc3128;
+  box-shadow: 0 0 8px rgba(220,49,40,0.6);
+  flex-shrink: 0;
+}
+
+/* Holiday label inside day cell */
+.holiday-label {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: #dc3128;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 90%;
+}
+
+/* Demand dot (non-holiday high-demand) */
+.demand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0061a4;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+/* ── Changed cell (config save — old vs new price) ────────────────────── */
+.day-cell.changed {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;
+  border-color: #f59e0b !important;
+}
+
+.day-cell .old-price {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 10px;
+  color: #9ca3af;
+  text-decoration: line-through;
+  font-family: 'Hanken Grotesk', sans-serif;
+}
+
+.day-cell .new-price {
+  font-weight: 700;
+  color: #b81311;
+}
+
+/* ── Config Editor Tooltips ────────────────────────────────────────────── */
+.info-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  margin-left: 6px;
+}
+.info-tooltip .material-symbols-outlined {
+  font-size: 14px;
+  color: #707883;
+  transition: color 0.2s;
+}
+.info-tooltip:hover .material-symbols-outlined { color: #0061a4; }
+.info-tooltip .tooltip-box {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #191c1e;
+  color: #f7f9fb;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  border-radius: 8px;
+  width: 220px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  pointer-events: none;
+}
+.info-tooltip:hover .tooltip-box { display: block; }
+.info-tooltip .tooltip-box::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #191c1e;
+}
+
+/* ── Calendar — Soft Grid Lines ───────────────────────────────────────── */
+#days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.day-cell {
+  position: relative;
+  min-height: 100px;
+  border-radius: 16px;
+  background: #ffffff;
+  transition: all 0.25s ease;
+  cursor: pointer;
+  border: 1px solid #eceef0;
+  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.04);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.day-cell:hover {
+  background: #f2f4f6;
+  border-color: #d8dadc;
+  box-shadow: 0 4px 16px rgba(33, 150, 243, 0.10);
+  transform: translateY(-1px);
+}
+.day-cell.empty { background: transparent; cursor: default; border: none; box-shadow: none; }
+
+/* Weekday header dividers */
+.weekday-header {
+  border-bottom: 1px solid #eceef0;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+/* ── Modal — Compact Day Detail ─────────────────────────────────────────── */
+#day-modal .modal-card {
+  position: relative;
+  width: min(400px, 90vw);
+  max-height: min(580px, 85vh);
+  margin: auto;
+  overflow-y: auto;
+}
+.modal-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 24px;
+  width: min(400px, 90vw);
+  max-height: min(580px, 85vh);
+  overflow-y: auto;
+  box-shadow: 0 30px 60px rgba(33,150,243,0.15);
+}
+.modal-price-header {
+  text-align: center;
+  padding: 16px;
+  background: linear-gradient(135deg, #0061a4, #2196f3);
+  border-radius: 16px;
+  color: white;
+  margin-bottom: 16px;
+}
+.modal-factor-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eceef0;
+  font-size: 14px;
+}
+.modal-factor-row:last-child { border-bottom: none; }
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+#day-modal { display: none; }
+#day-modal.open { display: block; }
+
+/* ── Seasonal chart ─────────────────────────────────────────────────────── */
+.seasonal-chart-container {
+  position: relative;
+}
+.seasonal-chart-labels {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  text-align: center;
+  font-size: 11px;
+  color: #707883;
+  margin-top: 4px;
+}
+.seasonal-chart-labels span { padding: 2px 0; }
+
+/* ── Field inputs ───────────────────────────────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background: #e0e3e5;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #0061a4;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,97,164,0.3);
+}
+
+/* Toggle (events) */
+.toggle-checkbox { display: none; }
+.toggle-label {
+  width: 3rem;
+  height: 1.5rem;
+  background-color: #e0e3e5;
+  border-radius: 9999px;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  display: inline-block;
+}
+.toggle-label::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.25rem;
+  height: 1.25rem;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.toggle-checkbox:checked + .toggle-label {
+  background-color: #0061a4;
+}
+.toggle-checkbox:checked + .toggle-label::after {
+  transform: translateX(100%);
+}

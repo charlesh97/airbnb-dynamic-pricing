@@ -3,6 +3,7 @@
 import unittest
 import sys
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 sys.path.insert(0, "src")
 
@@ -224,6 +225,39 @@ class TestCompetitorStrategy(unittest.TestCase):
         # Falls back to base price, confidence should be 0
         self.assertEqual(rec.confidence, 0.0)
         self.assertEqual(rec.suggested_price, 150.0)
+
+
+class TestEventStrategyLocalEvents(unittest.TestCase):
+    def setUp(self):
+        self.strat = EventStrategy()
+        self.config = {
+            "default_base_price": 150.0,
+            "default_min_price": 50.0,
+            "default_max_price": 2000.0,
+        }
+
+    def test_local_events_multiplier_applied(self):
+        """Date matching a local event → multiplier applied"""
+        config = {
+            **self.config,
+            "local_events": [
+                {"date": "2026-07-04", "factor": 1.30},
+                {"date": "2026-09-01", "factor": 1.25},
+            ],
+            "local_events_config": {"default_factor": 1.10},
+        }
+        rec = self.strat.compute(
+            property_uid="prop1",
+            date="2026-07-04",
+            calendar_entry=None,
+            bookings_in_window=[],
+            config=config,
+        )
+        self.assertTrue(rec.is_valid())
+        # Base 150 × seasonal (jul 4 = 1.30) × dow (fri = 1.15) × local (1.30) = 150 × 1.30 × 1.15 × 1.30
+        expected = 150 * 1.30 * 1.15 * 1.30
+        self.assertAlmostEqual(rec.suggested_price, expected, delta=5)
+        self.assertEqual(rec.factors.get("local_event_applied"), "1.3")
 
 
 if __name__ == "__main__":
