@@ -119,8 +119,7 @@ class AvailabilityStrategy(PricingStrategy):
                         )
 
                 if block_after and checkout:
-                    blocked_day_after = checkout + timedelta(days=1)
-                    if target == blocked_day_after:
+                    if target == checkout:
                         return AvailabilityResult(
                             is_available=False,
                             min_stay=min_stay,
@@ -129,9 +128,12 @@ class AvailabilityStrategy(PricingStrategy):
                         )
 
         if booking_window is not None:
-            from_day = datetime.now()
-            days_out = (target - from_day).days
-            if days_out > booking_window:
+            # Treat dates outside [today, today + booking_window_days] as closed.
+            # This includes past dates, which should never receive proposed prices.
+            today = datetime.now().date()
+            target_day = target.date()
+            days_out = (target_day - today).days
+            if days_out < 0 or days_out > booking_window:
                 return AvailabilityResult(
                     is_available=False,
                     min_stay=min_stay,
