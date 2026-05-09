@@ -119,26 +119,24 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- DAY MODAL — full screen overlay -->
-  <div id="day-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center" aria-modal="true">
-    <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" onclick="closeDayModal()"></div>
-    <div class="relative bg-surface-container-lowest rounded-[24px] shadow-[0_30px_60px_rgba(33,150,243,0.15)]" style="max-width:360px;width:90%;padding:24px;">
-      <div class="flex justify-between items-start mb-6">
+  <!-- DAY POPUP — anchored side card (desktop) / centered card (mobile) -->
+  <div id="day-popup-layer" class="fixed inset-0 z-50 hidden pointer-events-none" aria-hidden="true">
+    <div id="day-popup-card" class="day-popup-card">
+      <div class="popup-header">
         <div>
-          <h2 id="modal-date" class="font-display-lg text-headline-lg text-on-surface"></h2>
-          <p id="modal-property" class="text-label-sm text-on-surface-variant mt-1"></p>
+          <h2 id="popup-date" class="popup-date-text"></h2>
+          <p id="popup-property" class="popup-sub-text"></p>
         </div>
-        <button onclick="closeDayModal()" class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center hover:bg-surface-container-highest transition-colors">
-          <span class="material-symbols-outlined text-on-surface-variant">close</span>
+        <button id="popup-close-btn" class="popup-close-btn">
+          <span class="material-symbols-outlined">close</span>
         </button>
       </div>
-      <div id="modal-content" class="space-y-4"></div>
+      <div id="popup-content" class="popup-content"></div>
+      <div id="popup-footer" class="popup-footer"></div>
     </div>
   </div>
 
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/calendar.js"></script>
-  <script src="/static/js/config_editor.js"></script>
+
   <script>
     // Property switcher
     document.getElementById('property-switcher')?.addEventListener('change', function() {
@@ -147,17 +145,16 @@
       url.searchParams.set('property_uid', this.value);
       window.location.href = window.location.pathname + '?property_uid=' + this.value;
     });
-    function closeDayModal() { document.getElementById('day-modal').classList.add('hidden'); }
   </script>
 
   <!-- STATUS BAR — fixed bottom-right -->
   <div id="status-bar" class="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end">
     <!-- iGMS fetch status -->
-    <div id="fetch-status" class="bg-surface-container-lowest rounded-full px-3 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-1.5 text-xs text-on-surface-variant opacity-0 transition-opacity duration-300" style="min-width:80px">
+    <div id="fetch-status" class="bg-surface-container-lowest rounded-full px-3 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-1.5 text-xs text-on-surface-variant opacity-0 transition-opacity duration-300">
       <span id="fetch-dot" class="w-2 h-2 rounded-full bg-outline flex-shrink-0"></span>
       <span id="fetch-time" class="font-medium text-on-surface font-label-sm">—</span>
     </div>
-    <div id="save-status" class="bg-surface-container-lowest rounded-full px-3 py-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-1.5 text-xs text-on-surface-variant opacity-0 transition-opacity duration-300" style="min-width:80px">
+    <div id="save-status" class="bg-surface-container-lowest rounded-full px-3 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-1.5 text-xs text-on-surface-variant opacity-0 transition-opacity duration-300">
       <span id="save-dot" class="w-2 h-2 rounded-full bg-outline flex-shrink-0"></span>
       <span id="save-time" class="font-medium text-on-surface font-label-sm">—</span>
     </div>
