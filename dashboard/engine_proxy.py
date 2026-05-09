@@ -73,7 +73,13 @@ def _get_pricing_client() -> PricingClient:
     """Return an authenticated PricingClient from env vars."""
     cfg = EngineConfig.from_env(_REPO_ROOT / ".env")
     client = PricingClient()
-    client.set_access_token(cfg.igms_access_token)
+    # Support both wrapper variants:
+    # - legacy client exposing set_access_token(...)
+    # - current wrapper storing token on access_token attribute
+    if hasattr(client, "set_access_token"):
+        client.set_access_token(cfg.igms_access_token)
+    else:
+        client.access_token = cfg.igms_access_token
     return client
 
 
@@ -347,6 +353,78 @@ def _date_price_to_dict(
     }
 
 
+def _build_adjustment_ladder(af: dict, base_price: float) -> list[dict]:
+    """Build adjustment ladder from all_factors dict.
+
+    Each entry: {key, label, amount (signed delta), running_total_after}
+    Ordered as applied: seasonality → dow → demand → yield → competitor.
+    """
+    ladder = []
+    running = base_price
+
+    ev = af.get("event", {})
+    dm = af.get("demand", {})
+    yt = af.get("yield", {})
+    co = af.get("competitor", {})
+
+    seasonal_mult = ev.get("seasonal_multiplier", 1.0)
+    seasonal_amt = (seasonal_mult - 1.0) * base_price
+    if abs(seasonal_amt) >= 0.01:
+        running += seasonal_amt
+        ladder.append({
+            "key": "seasonality",
+            "label": "Seasonality",
+            "amount": round(seasonal_amt, 2),
+            "running_total_after": round(running, 2),
+        })
+
+    dow_mult = ev.get("dow_multiplier", 1.0)
+    dow_amt = (dow_mult - 1.0) * base_price
+    if abs(dow_amt) >= 0.01:
+        running += dow_amt
+        ladder.append({
+            "key": "dow",
+            "label": "Day-of-week",
+            "amount": round(dow_amt, 2),
+            "running_total_after": round(running, 2),
+        })
+
+    demand_mult = dm.get("demand_multiplier", 1.0)
+    demand_amt = (demand_mult - 1.0) * base_price
+    if abs(demand_amt) >= 0.01:
+        running += demand_amt
+        ladder.append({
+            "key": "demand",
+            "label": "Demand",
+            "amount": round(demand_amt, 2),
+            "running_total_after": round(running, 2),
+        })
+
+    yt_mult = yt.get("final_multiplier", yt.get("lead_factor", 1.0))
+    yield_amt = (yt_mult - 1.0) * base_price
+    if abs(yield_amt) >= 0.01:
+        running += yield_amt
+        ladder.append({
+            "key": "yield",
+            "label": "Yield",
+            "amount": round(yield_amt, 2),
+            "running_total_after": round(running, 2),
+        })
+
+    co_mult = 1.0 if co.get("status") == "disabled" else co.get("adjustment_factor", 1.0)
+    competitor_amt = (co_mult - 1.0) * base_price
+    if abs(competitor_amt) >= 0.01:
+        running += competitor_amt
+        ladder.append({
+            "key": "competitor",
+            "label": "Competitor",
+            "amount": round(competitor_amt, 2),
+            "running_total_after": round(running, 2),
+        })
+
+    return ladder
+
+
 def _date_price_to_detail(
     dp: DatePrice,
     current_airbnb_price: float | None,
@@ -395,6 +473,11 @@ def _date_price_to_detail(
     avail_cfg = config.get("availability", {})
     bwd = avail_cfg.get("booking_window_days", 120)
 
+    base_price_val = config.get("base_price", 200.0)
+    ladder = _build_adjustment_ladder(af, base_price_val)
+    subtotal_before_blend = ladder[-1]["running_total_after"] if ladder else base_price_val
+    blend_adjustment_amount = round(dp.final_price - subtotal_before_blend, 2)
+
     return {
         "date": dp.date,
         "property_uid": dp.property_uid,
@@ -406,7 +489,7 @@ def _date_price_to_detail(
         "blocked_reason": avail.blocked_reason,
         "booking_window_days": bwd,
         "match_status": match,
-        "base_rate": config.get("base_price", 200.0),
+        "base_rate": base_price_val,
         "seasonal": {
             "rule": seasonal_rule,
             "detail": seasonal_detail,
@@ -467,8 +550,12 @@ def _date_price_to_detail(
             "event": weights.get("event", 0),
             "competitor": weights.get("competitor", 0),
             "yield": weights.get("yield", 0),
-            # weather removed from codebase
         },
         "strategy_prices": dp.strategy_prices,
         "raw_factors": af,
+        "adjustment_ladder": ladder,
+        "subtotal_before_blend": round(subtotal_before_blend, 2),
+        "blend_adjustment_amount": blend_adjustment_amount,
+        "final_recommended": dp.final_price,
+        "current_igms_price": current,
     }
