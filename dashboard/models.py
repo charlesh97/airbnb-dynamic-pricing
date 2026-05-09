@@ -40,11 +40,27 @@ class PropertyInfo(BaseModel):
     name: str
 
 
+class IgmsSync(BaseModel):
+    igms_pull_success: bool = False
+    igms_price_count: int = 0
+    igms_bookings_count: int = 0
+    igms_error: str | None = None
+    pulled_at: str | None = None
+
+
 class CalendarResponse(BaseModel):
     year: int
     month: int
     property_uid: str
     days: List[DayResponse]
+    sync: IgmsSync | None = None
+
+
+class AdjustmentItem(BaseModel):
+    key: str
+    label: str
+    amount: float
+    running_total_after: float
 
 
 class DayDetailResponse(BaseModel):
@@ -67,3 +83,8 @@ class DayDetailResponse(BaseModel):
     strategy_weights: dict
     strategy_prices: dict
     raw_factors: dict
+    adjustment_ladder: list[AdjustmentItem] = Field(default_factory=list)
+    subtotal_before_blend: float = 0.0
+    blend_adjustment_amount: float = 0.0
+    final_recommended: float = 0.0
+    current_igms_price: Optional[float] = None
