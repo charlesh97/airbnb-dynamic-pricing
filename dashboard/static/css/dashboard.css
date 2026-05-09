@@ -49,9 +49,6 @@
   text-align: right;
   margin-top: auto;
 }
-.day-cell-price.high-demand {
-  color: #b81311;
-}
 
 /* Holiday dot */
 .holiday-dot {
@@ -88,25 +85,52 @@
   flex-shrink: 0;
 }
 
-/* ── Changed cell (config save — old vs new price) ────────────────────── */
-.day-cell.changed {
-  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important;
-  border-color: #f59e0b !important;
-}
-
-.day-cell .old-price {
-  position: absolute;
-  top: 6px;
-  right: 6px;
+/* ── Live vs Proposed indicators ───────────────────────────────────────── */
+.proposed-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
   font-size: 10px;
-  color: #9ca3af;
-  text-decoration: line-through;
-  font-family: 'Hanken Grotesk', sans-serif;
+  color: #404752;
+  line-height: 1.1;
 }
-
-.day-cell .new-price {
+.new-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: #d1e4ff;
+  border: 1px solid #7db8ff;
+  color: #00497d;
+  font-size: 9px;
   font-weight: 700;
-  color: #b81311;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+}
+.proposed-text {
+  color: #404752;
+  font-weight: 600;
+}
+.proposed-delta {
+  color: #00497d;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.igms-missing-label,
+.proposed-only-label {
+  margin-top: 4px;
+  text-align: right;
+  font-size: 10px;
+  font-weight: 600;
+}
+.igms-missing-label {
+  color: #b3261e;
+}
+.proposed-only-label {
+  color: #0061a4;
 }
 
 /* ── Config Editor Tooltips ────────────────────────────────────────────── */
@@ -177,6 +201,40 @@
   border-color: #d8dadc;
   box-shadow: 0 4px 16px rgba(33, 150, 243, 0.10);
   transform: translateY(-1px);
+}
+.day-cell.unavailable {
+  background: #f1f3f4;
+  border-color: #d8dadc;
+  box-shadow: none;
+}
+.day-cell.unavailable:hover {
+  background: #eceff1;
+  border-color: #cfd3d7;
+  box-shadow: none;
+  transform: none;
+}
+.day-cell.unavailable .day-cell-num,
+.day-cell.unavailable .day-cell-price,
+.day-cell.unavailable .proposed-text,
+.day-cell.unavailable .proposed-delta {
+  color: #8b9199 !important;
+}
+.day-cell.booking-window-closed {
+  background: #f1f3f4;
+  border-color: #d8dadc;
+  box-shadow: none;
+}
+.day-cell.booking-window-closed:hover {
+  background: #eceff1;
+  border-color: #cfd3d7;
+  box-shadow: none;
+  transform: none;
+}
+.day-cell.booking-window-closed .day-cell-num,
+.day-cell.booking-window-closed .day-cell-price,
+.day-cell.booking-window-closed .proposed-text,
+.day-cell.booking-window-closed .proposed-delta {
+  color: #8b9199 !important;
 }
 .day-cell.empty { background: transparent; cursor: default; border: none; box-shadow: none; }
 
@@ -349,9 +407,33 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .popup-sub-text {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   color: #707883;
   margin-top: 2px;
+}
+.popup-sub-label {
+  color: #707883;
+  font-weight: 600;
+}
+.popup-live-price {
+  color: #191c1e;
+  font-weight: 700;
+}
+.popup-live-missing {
+  color: #b3261e;
+  font-weight: 700;
+}
+.popup-proposed-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.popup-proposed-price {
+  color: #0061a4;
+  font-family: 'Hanken Grotesk', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
 }
 .popup-close-btn {
   width: 36px;
@@ -390,7 +472,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 3px 8px;
   border-radius: 9999px;
 }
-.delta-chip.positive { background: #ffdad5; color: #930005; }
+.delta-chip.positive { background: #d1e4ff; color: #00497d; }
 .delta-chip.negative { background: #d1e4ff; color: #00497d; }
 
 /* ── Breakdown Block ────────────────────────────────────────────────────────── */
@@ -415,6 +497,7 @@ input[type="range"]::-webkit-slider-thumb {
 .breakdown-row:last-of-type { border-bottom: none; }
 .breakdown-row .row-label { color: #404752; font-weight: 400; }
 .breakdown-row .row-amount { font-weight: 600; color: #191c1e; }
+.breakdown-row.base-row .row-label { font-weight: 600; color: #191c1e; }
 .breakdown-row.positive .row-amount { color: #b81311; }
 .breakdown-row.negative .row-amount { color: #0061a4; }
 .subtotal-row {
@@ -476,6 +559,7 @@ input[type="range"]::-webkit-slider-thumb {
 .igms-change { font-weight: 600; }
 .igms-change.positive { color: #b81311; }
 .igms-change.negative { color: #0061a4; }
+.igms-line.igms-line-error .igms-value { color: #b3261e; }
 
 /* ── Popup Footer / Close ──────────────────────────────────────────────────── */
 .popup-footer {
@@ -503,4 +587,25 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 24px 0;
   color: #707883;
   font-size: 14px;
+}
+
+/* ── Booking Stay Bar ─────────────────────────────────────────────────────── */
+.booking-stay-bar {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 28px;
+  height: 18px;
+  background: #10b981;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  z-index: 1;
 }
