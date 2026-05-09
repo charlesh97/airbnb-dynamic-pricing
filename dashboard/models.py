@@ -33,6 +33,8 @@ class DayResponse(BaseModel):
     is_holiday: bool = False
     holiday_name: Optional[str] = None
     holiday_proximity: Optional[dict] = None
+    live_price_status: str = "ok"
+    has_proposed_change: bool = False
 
 
 class PropertyInfo(BaseModel):
@@ -48,12 +50,25 @@ class IgmsSync(BaseModel):
     pulled_at: str | None = None
 
 
+class BookingSpan(BaseModel):
+    booking_id: str
+    label: str
+    reservation_code: Optional[str] = None
+    guest_name: Optional[str] = None
+    checkin: str
+    checkout: str
+    checkin_display: str
+    checkout_display: str
+    nights: int
+
+
 class CalendarResponse(BaseModel):
     year: int
     month: int
     property_uid: str
     days: List[DayResponse]
     sync: IgmsSync | None = None
+    bookings: List[BookingSpan] = Field(default_factory=list)
 
 
 class AdjustmentItem(BaseModel):
@@ -88,3 +103,5 @@ class DayDetailResponse(BaseModel):
     blend_adjustment_amount: float = 0.0
     final_recommended: float = 0.0
     current_igms_price: Optional[float] = None
+    live_price_status: str = "ok"
+    has_proposed_change: bool = False
