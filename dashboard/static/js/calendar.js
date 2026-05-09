@@ -10,19 +10,23 @@ let currentMonth = new Date().getMonth() + 1;
 let currentUid = DEFAULT_PROPERTY;
 let lastFetchTime = null;
 let lastFetchSuccess = false;
+let popupState = { open: false, activeDate: null, activeCell: null };
+let scrollHandler = null;
+let resizeHandler = null;
 
-function updateFetchStatus(success) {
-  lastFetchSuccess = success;
+function updateFetchStatus(success, meta) {
   const el = document.getElementById("fetch-status");
   const dot = document.getElementById("fetch-dot");
   const timeEl = document.getElementById("fetch-time");
   if (!el || !dot || !timeEl) return;
-  if (success) {
-    lastFetchTime = new Date();
+  if (success && meta) {
+    const t = meta.pulled_at ? new Date(meta.pulled_at) : new Date();
     dot.className = "w-2 h-2 rounded-full bg-green-500 flex-shrink-0";
-    const t = lastFetchTime;
     timeEl.textContent = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    sessionStorage.setItem('last_fetch_time', lastFetchTime.getTime().toString());
+  } else if (success) {
+    const t = new Date();
+    dot.className = "w-2 h-2 rounded-full bg-green-500 flex-shrink-0";
+    timeEl.textContent = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   } else {
     dot.className = "w-2 h-2 rounded-full bg-red-500 flex-shrink-0";
     timeEl.textContent = "Failed";
@@ -39,7 +43,6 @@ function getPropertyUid() {
 }
 
 function initCalendar() {
-  // Restore from URL params
   const params = new URLSearchParams(window.location.search);
   if (params.has("year")) currentYear = parseInt(params.get("year"));
   if (params.has("month")) currentMonth = parseInt(params.get("month"));
@@ -50,20 +53,18 @@ function initCalendar() {
     currentUid = getPropertyUid();
   }
 
-  // Sync switcher
   const switcher = document.getElementById("property-switcher");
   if (switcher) switcher.value = currentUid;
 
-  // Restore fetch status if we have a cached time
-  const cached = sessionStorage.getItem('last_fetch_time');
-  if (cached) {
-    const t = new Date(parseInt(cached));
-    const dot = document.getElementById("fetch-dot");
-    const timeEl = document.getElementById("fetch-time");
-    if (dot) dot.className = "w-2 h-2 rounded-full bg-green-500 flex-shrink-0";
-    if (timeEl) timeEl.textContent = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    const el = document.getElementById("fetch-status");
-    if (el) el.style.opacity = "1";
+  if (params.get('refreshed') === '1') {
+    const banner = document.getElementById('config-updated-banner');
+    if (banner) {
+      banner.style.display = 'flex';
+      setTimeout(() => banner.remove(), 3500);
+    }
+    const newUrl = new URL(window.location);
+    newUrl.searchParams.delete('refreshed');
+    window.history.replaceState(null, '', newUrl);
   }
 
   loadMonth(currentYear, currentMonth);
@@ -74,14 +75,12 @@ async function loadMonth(year, month) {
   currentMonth = month;
   const propertyUid = currentUid || getPropertyUid();
 
-  // Update URL
   const url = new URL(window.location);
   url.searchParams.set("year", year);
   url.searchParams.set("month", month);
   url.searchParams.set("property_uid", propertyUid);
   window.history.replaceState(null, "", url);
 
-  // Update giant header
   const monthName = document.getElementById("month-name");
   const yearLabel = document.getElementById("year-label");
   if (monthName) monthName.textContent = MONTH_NAMES[month];
@@ -89,7 +88,7 @@ async function loadMonth(year, month) {
 
   try {
     const data = await api.get(`/api/calendar/${year}/${month}?property_uid=${propertyUid}`);
-    updateFetchStatus(true);
+    updateFetchStatus(true, data.sync || null);
     renderGrid(data.days, propertyUid);
   } catch (e) {
     updateFetchStatus(false);
@@ -114,33 +113,15 @@ function renderGrid(days, propertyUid) {
   if (!grid) return;
   grid.innerHTML = "";
 
-  // ── Clear stale old prices (older than 5 min) ──
+  sessionStorage.setItem('atlas_calendar_view', JSON.stringify({ year: currentYear, month: currentMonth }));
+
   const ts = parseInt(sessionStorage.getItem('old_prices_timestamp') || '0');
   if (Date.now() - ts > 5 * 60 * 1000) {
     sessionStorage.removeItem('old_prices');
     sessionStorage.removeItem('old_prices_timestamp');
   }
 
-  // ── Show refreshed banner and force reload if redirected from config save ──
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('refreshed') === '1') {
-    const banner = document.getElementById('config-updated-banner');
-    if (banner) {
-      banner.style.display = 'flex';
-      setTimeout(() => banner.remove(), 3500);
-    }
-    // Clear param from URL bar and force a fresh fetch
-    const newUrl = new URL(window.location);
-    newUrl.searchParams.delete('refreshed');
-    window.history.replaceState(null, '', newUrl);
-    // Force fresh data by resetting any stale session cache
-    sessionStorage.removeItem('last_fetch_time');
-    loadMonth(currentYear, currentMonth);
-  }
-
-  // Figure out first day offset (Sun = 0)
   const firstDay = new Date(currentYear, currentMonth - 1, 1).getDay();
-  // Offset cells before day 1
   for (let i = 0; i < firstDay; i++) {
     const empty = document.createElement("div");
     empty.className = "day-cell empty";
@@ -152,7 +133,6 @@ function renderGrid(days, propertyUid) {
     grid.appendChild(cell);
   });
 
-  // Pad to complete last row
   const totalCells = firstDay + days.length;
   const remaining = (7 - (totalCells % 7)) % 7;
   for (let i = 0; i < remaining; i++) {
@@ -220,82 +200,240 @@ function buildCell(day, propertyUid) {
     cell.appendChild(holidayLabel);
   }
 
-  cell.addEventListener("click", () => openDayModal(day.date, propertyUid, day.current_airbnb_price));
+  cell.addEventListener("click", () => openDayPopup(day.date, propertyUid, day.current_airbnb_price, cell));
 
   return cell;
 }
 
-async function openDayModal(date, propertyUid, currentPrice) {
-  const modal = document.getElementById("day-modal");
-  const modalContent = document.getElementById("modal-content");
-  const modalDate = document.getElementById("modal-date");
-  const modalProp = document.getElementById("modal-property");
+async function openDayPopup(date, propertyUid, currentPrice, cellElement) {
+  const layer = document.getElementById("day-popup-layer");
+  const card = document.getElementById("day-popup-card");
+  if (!layer || !card) return;
 
-  if (!modal || !modalContent) return;
+  popupState = { open: true, activeDate: date, activeCell: cellElement };
 
-  // Show modal frame
-  modal.classList.remove("hidden");
-  modal.classList.add("open");
+  layer.classList.remove("hidden");
+  layer.classList.add("open");
 
-  // Loading state
-  if (modalDate) modalDate.textContent = date;
-  if (modalProp) modalProp.textContent = "Loading…";
-  modalContent.innerHTML = '<div class="text-center py-12 text-on-surface-variant font-body-md">Loading…</div>';
+  const popupDate = document.getElementById("popup-date");
+  const popupProp = document.getElementById("popup-property");
+  const popupContent = document.getElementById("popup-content");
+  const popupFooter = document.getElementById("popup-footer");
+
+  if (popupDate) popupDate.textContent = date;
+  if (popupProp) popupProp.textContent = "Loading…";
+  if (popupContent) popupContent.innerHTML = '<div class="text-center py-12 text-on-surface-variant font-body-md">Loading…</div>';
+  if (popupFooter) popupFooter.innerHTML = "";
+
+  const closeBtn = document.getElementById("popup-close-btn");
+  if (closeBtn) closeBtn.onclick = closeDayPopup;
+
+  scrollHandler = repositionOnScroll;
+  resizeHandler = repositionOnResize;
+  window.addEventListener("scroll", scrollHandler, { passive: true });
+  window.addEventListener("resize", resizeHandler);
+
+  positionPopup(cellElement);
 
   try {
     const detail = await api.get(`/api/days/${date}?property_uid=${propertyUid}`);
-    renderDayDetail(detail, currentPrice);
-    if (modalDate) modalDate.textContent = detail.date;
-    if (modalProp) modalProp.textContent = `Base: $${detail.base_rate?.toFixed(0)} | Final: $${detail.final_price?.toFixed(0)}`;
+    renderDayDetailPopup(detail, currentPrice);
+    positionPopup(cellElement);
   } catch (e) {
-    modalContent.innerHTML = '<div class="text-center py-12 text-secondary font-body-md">Failed to load day details.</div>';
+    const popupContent = document.getElementById("popup-content");
+    if (popupContent) popupContent.innerHTML = '<div class="text-center py-12 text-secondary font-body-md">Failed to load day details.</div>';
     console.error("Failed to load day detail:", e);
   }
 }
 
-function renderDayDetail(detail, currentPrice) {
-  const modalContent = document.getElementById("modal-content");
-  if (!modalContent) return;
+function positionPopup(cellElement) {
+  const card = document.getElementById("day-popup-card");
+  const layer = document.getElementById("day-popup-layer");
+  if (!card || !layer) return;
 
-  const baseRate = detail.base_rate || 0;
-  const finalPrice = detail.final_price || 0;
-  const s = detail.seasonal || {};
-  const d = detail.demand || {};
-  
-  // Get the key factors
-  const seasonalMult = s.effective_seasonal || 1.0;
-  const dowMult = s.dow_multiplier || 1.0;
-  const demandMult = d.multiplier || 1.0;
-  
-  // Build modifier line
-  const mods = [];
-  if (seasonalMult !== 1.0) mods.push(`${seasonalMult.toFixed(2)}× season`);
-  if (dowMult !== 1.0) mods.push(`${dowMult.toFixed(2)}× DOW`);
-  if (demandMult !== 1.0) mods.push(`${demandMult.toFixed(2)}× demand`);
-  if (d.last_minute?.active) mods.push(`last-min ${d.last_minute.discount}`);
-  if (d.far_future?.active) mods.push(`far-future ${d.far_future.discount}`);
-  const modLine = mods.length > 0 ? mods.join(" · ") : "no adjustments";
+  if (window.innerWidth < 768) return;
 
-  modalContent.innerHTML = `
-    <div class="text-center">
-      <p class="text-label-sm text-on-surface-variant mb-1">${detail.date}</p>
-      <p class="text-display-sm font-extrabold text-on-surface">$${finalPrice.toFixed(0)}</p>
-      <p class="text-label-sm text-on-surface-variant mt-1">Base $${baseRate.toFixed(0)} · ${modLine}</p>
-    </div>
-    ${currentPrice != null ? `
-    <div class="mt-3 text-center text-sm">
-      <span class="text-on-surface-variant">Airbnb: </span>
-      <span class="font-semibold text-on-surface">$${currentPrice.toFixed(0)}</span>
-      <span class="ml-2 text-on-surface-variant">Delta: </span>
-      <span class="font-semibold ${finalPrice > currentPrice ? "text-secondary" : "text-green-600"}">${finalPrice >= currentPrice ? "+" : ""}$${(finalPrice - currentPrice).toFixed(0)}</span>
-    </div>` : ""}
-    <div class="mt-4 flex justify-center gap-3">
-      <button onclick="closeDayModal()" class="px-4 py-2 rounded-full bg-surface-container-high text-on-surface text-label-sm font-semibold hover:bg-surface-container-low transition-colors">Close</button>
-    </div>
-  `;
+  const GAP = 12;
+  const MARGIN = 16;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  const cellRect = cellElement.getBoundingClientRect();
+
+  card.style.visibility = "hidden";
+  card.style.left = "0";
+  card.style.top = "0";
+  card.style.right = "auto";
+  card.style.bottom = "auto";
+  layer.classList.remove("hidden");
+  const cardH = card.offsetHeight;
+  const cardW = card.offsetWidth;
+  layer.classList.add("hidden");
+
+  const placeRight = cellRect.right + GAP + cardW <= viewportW - MARGIN;
+  let left, top;
+  if (placeRight) {
+    left = cellRect.right + GAP;
+  } else {
+    left = cellRect.left - GAP - cardW;
+  }
+  top = Math.max(MARGIN, Math.min(cellRect.top, viewportH - cardH - MARGIN));
+
+  card.style.left = left + "px";
+  card.style.top = top + "px";
 }
 
-// Push to iGMS
+function closeDayPopup() {
+  const layer = document.getElementById("day-popup-layer");
+  if (layer) {
+    layer.classList.add("hidden");
+    layer.classList.remove("open");
+  }
+  popupState = { open: false, activeDate: null, activeCell: null };
+
+  if (scrollHandler) {
+    window.removeEventListener("scroll", scrollHandler);
+    scrollHandler = null;
+  }
+  if (resizeHandler) {
+    window.removeEventListener("resize", resizeHandler);
+    resizeHandler = null;
+  }
+}
+
+function repositionOnScroll() {
+  if (popupState.open && popupState.activeCell) positionPopup(popupState.activeCell);
+}
+
+function repositionOnResize() {
+  if (popupState.open && popupState.activeCell) positionPopup(popupState.activeCell);
+}
+
+document.addEventListener('click', (e) => {
+  if (!popupState.open) return;
+  const card = document.getElementById('day-popup-card');
+  const closeBtn = document.getElementById('popup-close-btn');
+  if (card && !card.contains(e.target) && !e.target.closest('.day-cell') && e.target !== closeBtn) {
+    closeDayPopup();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && popupState.open) {
+    closeDayPopup();
+  }
+});
+
+function renderDayDetailPopup(detail, currentPrice) {
+  const popupDate = document.getElementById("popup-date");
+  const popupProp = document.getElementById("popup-property");
+  const popupContent = document.getElementById("popup-content");
+  const popupFooter = document.getElementById("popup-footer");
+
+  const finalPrice = detail.final_recommended || detail.final_price || 0;
+  const igmsPrice = detail.current_igms_price || currentPrice || null;
+
+  if (popupDate) popupDate.textContent = detail.date;
+
+  let deltaBadge = "";
+  if (igmsPrice != null && igmsPrice > 0) {
+    const delta = finalPrice - igmsPrice;
+    const sign = delta >= 0 ? "+" : "";
+    const cls = delta >= 0 ? "positive" : "negative";
+    deltaBadge = `<span class="delta-chip ${cls}">${sign}$${Math.abs(delta).toFixed(0)} vs iGMS</span>`;
+  }
+  if (popupProp) {
+    popupProp.innerHTML = `<span class="popup-final-price">$${finalPrice.toFixed(0)}</span> ${deltaBadge}`;
+  }
+
+  const ladder = detail.adjustment_ladder || [];
+  let breakdownRows = "";
+
+  if (ladder.length > 0) {
+    for (const item of ladder) {
+      const isPos = item.amount >= 0;
+      const cls = isPos ? "positive" : "negative";
+      const sign = isPos ? "+" : "-";
+      breakdownRows += `
+        <div class="breakdown-row ${cls}">
+          <span class="row-label">${item.label}</span>
+          <span class="row-amount">${sign}$${Math.abs(item.amount).toFixed(2)}</span>
+        </div>`;
+    }
+    breakdownRows += `
+        <div class="subtotal-row">
+          <span class="row-label">Subtotal</span>
+          <span class="row-amount">$${detail.subtotal_before_blend?.toFixed(2) || finalPrice.toFixed(2)}</span>
+        </div>`;
+  } else {
+    const s = detail.seasonal || {};
+    const d = detail.demand || {};
+    const base = detail.base_rate || 0;
+    let running = base;
+    const addRow = (label, mult) => {
+      const amt = (mult - 1) * base;
+      if (Math.abs(amt) < 0.01) return;
+      running += amt;
+      const isPos = amt >= 0;
+      const cls = isPos ? "positive" : "negative";
+      const sign = isPos ? "+" : "-";
+      breakdownRows += `
+        <div class="breakdown-row ${cls}">
+          <span class="row-label">${label}</span>
+          <span class="row-amount">${sign}$${Math.abs(amt).toFixed(2)}</span>
+        </div>`;
+    };
+    addRow("Seasonality", s.effective_seasonal || 1.0);
+    addRow("Day-of-week", s.dow_multiplier || 1.0);
+    addRow("Demand", d.multiplier || 1.0);
+    breakdownRows += `
+        <div class="subtotal-row">
+          <span class="row-label">Subtotal</span>
+          <span class="row-amount">$${running.toFixed(2)}</span>
+        </div>`;
+  }
+
+  let blendHtml = "";
+  const blendAmt = detail.blend_adjustment_amount || 0;
+  if (Math.abs(blendAmt) >= 0.01) {
+    const isPos = blendAmt >= 0;
+    const cls = isPos ? "positive" : "negative";
+    const sign = isPos ? "+" : "-";
+    blendHtml = `
+      <div class="blend-row ${cls}">
+        <span class="row-label">Blend adjustment</span>
+        <span class="row-amount">${sign}$${Math.abs(blendAmt).toFixed(2)}</span>
+      </div>`;
+  }
+
+  let igmsHtml = "";
+  if (igmsPrice != null && igmsPrice > 0) {
+    const change = finalPrice - igmsPrice;
+    const sign = change >= 0 ? "+" : "-";
+    const cls = change >= 0 ? "positive" : "negative";
+    igmsHtml = `
+      <div class="igms-line">
+        <span class="igms-label">Current iGMS</span>
+        <span>
+          <span class="igms-value">$${igmsPrice.toFixed(0)}</span>
+          <span class="igms-change ${cls}">${sign}$${Math.abs(change).toFixed(0)} to push</span>
+        </span>
+      </div>`;
+  }
+
+  popupContent.innerHTML = `
+    ${breakdownRows}
+    ${blendHtml}
+    <div class="final-row">
+      <span class="row-label">Final recommended</span>
+      <span class="row-amount">$${finalPrice.toFixed(2)}</span>
+    </div>
+    ${igmsHtml}`;
+
+  popupFooter.innerHTML = `
+    <button class="popup-close-action" onclick="closeDayPopup()">Close</button>`;
+}
+
 window.pushMonthToIGMS = async function() {
   const btn = document.getElementById("push-igms-btn");
   if (!btn) return;
@@ -309,11 +447,16 @@ window.pushMonthToIGMS = async function() {
       year: currentYear,
       month: currentMonth,
     });
+    const statusEl = document.getElementById("push-status");
     if (resp.success) {
-      btn.textContent = `✓ Pushed ${resp.pushed}`;
-      setTimeout(() => { btn.textContent = "Push to iGMS"; btn.disabled = false; }, 2000);
+      const count = resp.price_updates_sent || resp.pushed || 0;
+      btn.textContent = `✓ Sent ${count}`;
+      if (statusEl) statusEl.textContent = `Sent ${count} price updates`;
+      setTimeout(() => { btn.textContent = "Push to iGMS"; btn.disabled = false; if (statusEl) statusEl.textContent = ""; }, 3000);
     } else {
       btn.textContent = "Failed";
+      const errCount = resp.errors?.length || 0;
+      if (statusEl) statusEl.textContent = `${errCount} error(s)`;
       console.error("Push errors:", resp.errors);
       setTimeout(() => { btn.textContent = "Push to iGMS"; btn.disabled = false; }, 3000);
     }
@@ -327,15 +470,9 @@ window.pushMonthToIGMS = async function() {
 // Wire up global nav functions (used by inline onclick in HTML)
 window.prevMonth = prevMonth;
 window.nextMonth = nextMonth;
-window.closeDayModal = closeDayModal;
+window.refreshCalendar = refreshCalendar;
+window.closeDayPopup = closeDayPopup;
+window.openDayPopup = openDayPopup;
 
 // Auto-init when calendar page loads
 initCalendar();
-
-function closeDayModal() {
-  const modal = document.getElementById("day-modal");
-  if (modal) {
-    modal.classList.add("hidden");
-    modal.classList.remove("open");
-  }
-}
