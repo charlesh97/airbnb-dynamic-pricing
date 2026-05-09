@@ -210,6 +210,15 @@ async function openDayPopup(date, propertyUid, currentPrice, cellElement) {
   const card = document.getElementById("day-popup-card");
   if (!layer || !card) return;
 
+  if (scrollHandler) {
+    window.removeEventListener("scroll", scrollHandler);
+    scrollHandler = null;
+  }
+  if (resizeHandler) {
+    window.removeEventListener("resize", resizeHandler);
+    resizeHandler = null;
+  }
+
   popupState = { open: true, activeDate: date, activeCell: cellElement };
 
   layer.classList.remove("hidden");
@@ -284,13 +293,6 @@ function positionPopup(cellElement) {
 }
 
 function closeDayPopup() {
-  const layer = document.getElementById("day-popup-layer");
-  if (layer) {
-    layer.classList.add("hidden");
-    layer.classList.remove("open");
-  }
-  popupState = { open: false, activeDate: null, activeCell: null };
-
   if (scrollHandler) {
     window.removeEventListener("scroll", scrollHandler);
     scrollHandler = null;
@@ -299,13 +301,22 @@ function closeDayPopup() {
     window.removeEventListener("resize", resizeHandler);
     resizeHandler = null;
   }
+  popupState = { open: false, activeDate: null, activeCell: null };
+
+  const layer = document.getElementById("day-popup-layer");
+  if (layer) {
+    layer.classList.add("hidden");
+    layer.classList.remove("open");
+  }
 }
 
 function repositionOnScroll() {
+  if (!popupState.activeCell) return;
   if (popupState.open && popupState.activeCell) positionPopup(popupState.activeCell);
 }
 
 function repositionOnResize() {
+  if (!popupState.activeCell) return;
   if (popupState.open && popupState.activeCell) positionPopup(popupState.activeCell);
 }
 
