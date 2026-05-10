@@ -102,11 +102,17 @@
   <header class="sticky top-0 z-50 bg-surface/80 backdrop-blur-xl shadow-[0_20px_40px_rgba(0,97,164,0.08)] px-margin-mobile md:px-margin-desktop py-4 flex items-center justify-between">
     <div class="flex items-center gap-4">
       <h1 class="font-display-lg text-primary tracking-tight text-2xl md:text-3xl font-bold" style="letter-spacing: -0.02em;">iGMS Pricing</h1>
-      <select id="property-switcher" class="property-switcher bg-surface border border-surface-variant rounded-full px-4 py-2 text-sm font-body-md text-on-surface cursor-pointer focus:ring-2 focus:ring-primary/20 outline-none">
-        {% for prop in properties %}
-        <option value="{{ prop.property_uid }}" {% if prop.property_uid == current_uid %}selected{% endif %}>{{ prop.name }}</option>
-        {% endfor %}
-      </select>
+      <div class="flex items-center gap-2">
+        <select id="property-switcher" class="property-switcher bg-surface border border-surface-variant rounded-full px-4 py-2 text-sm font-body-md text-on-surface cursor-pointer focus:ring-2 focus:ring-primary/20 outline-none">
+          {% for prop in properties %}
+          <option value="{{ prop.property_uid }}" {% if prop.property_uid == current_uid %}selected{% endif %}>{{ prop.name }}</option>
+          {% endfor %}
+        </select>
+        <button id="add-property-btn" class="flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface-container-low border border-surface-variant text-on-surface-variant text-label-sm font-semibold hover:bg-surface-container-high hover:text-on-surface transition-all">
+          <span class="material-symbols-outlined text-sm">add</span>
+          Add Property
+        </button>
+      </div>
     </div>
     <div class="flex items-center gap-6">
       <a href="/calendar" class="font-body-md text-on-surface-variant hover:text-primary transition-colors text-sm font-medium">Calendar</a>
@@ -154,16 +160,26 @@
       <span id="fetch-dot" class="w-2 h-2 rounded-full bg-outline flex-shrink-0"></span>
       <span id="fetch-time" class="font-medium text-on-surface font-label-sm">—</span>
     </div>
-    <div id="save-status" class="bg-surface-container-lowest rounded-full px-3 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-1.5 text-xs text-on-surface-variant opacity-0 transition-opacity duration-300">
-      <span id="save-dot" class="w-2 h-2 rounded-full bg-outline flex-shrink-0"></span>
-      <span id="save-time" class="font-medium text-on-surface font-label-sm">—</span>
-    </div>
     <!-- Refresh button -->
-    <button id="refresh-btn" onclick="refreshCalendar()" class="bg-surface-container-lowest rounded-full px-4 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-2 text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all cursor-pointer">
+    <button id="refresh-btn" onclick="refreshCalendar()" class="bg-surface-container-lowest rounded-full px-3 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.12)] border border-surface-container flex items-center gap-1.5 text-xs text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all cursor-pointer">
       <span class="material-symbols-outlined text-sm">sync</span>
       <span class="font-label-sm font-medium">Refresh</span>
     </button>
   </div>
-  {% block scripts %}{% endblock %}
+  <div id="add-property-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" id="add-property-backdrop"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-surface-container-lowest rounded-2xl shadow-2xl p-6 border border-surface-container">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-headline-lg-mobile text-on-surface">Add Property</h3>
+        <button id="add-property-close" class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-colors">
+          <span class="material-symbols-outlined text-sm">close</span>
+        </button>
+      </div>
+      <div id="add-property-content">
+        <div class="text-center py-12 text-on-surface-variant">Loading...</div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/static/js/properties_modal.js"></script>
 </body>
 </html>
