@@ -2,6 +2,8 @@
 
 Dynamic pricing engine for short-term rental properties managed via iGMS.
 
+![Sample Dashboard Screenshot](dashboard_example.png)
+
 ## Architecture
 
 ```
