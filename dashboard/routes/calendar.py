@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import logging
 from fastapi import APIRouter, Query
 
-from ..engine_proxy import compute_month, get_properties, _get_pricing_client
+from pathlib import Path
+from ..engine_proxy import compute_month, get_properties, _get_pricing_client, _fetch_bookings_for_window, _normalize_igms_properties, _build_default_property_config
 from ..models import CalendarResponse, DayResponse, IgmsSync
 
 router = APIRouter(prefix="/api", tags=["calendar"])
@@ -79,6 +80,87 @@ async def list_properties():
     return get_properties()
 
 
+@router.get("/properties/discover")
+async def discover_properties():
+    """Fetch all iGMS properties and mark which ones have local configs.
+
+    Returns list of {property_uid, name, state, has_local_config} sorted by name+uid.
+    Read-only: no file writes.
+    """
+    from ..engine_proxy import _CONFIG_STORE
+
+    try:
+        client = _get_pricing_client()
+        raw = client.get_all_properties()
+        igms_props = _normalize_igms_properties(raw)
+    except Exception:
+        logger.exception("discover: iGMS fetch failed")
+        return []
+
+    local_uids = {p.stem for p in Path(_CONFIG_STORE.config_dir).glob("*.json")}
+
+    result = []
+    for p in igms_props:
+        uid = str(p.get("property_uid") or "").strip()
+        if not uid:
+            continue
+        location = p.get("location") or {}
+        result.append({
+            "property_uid": uid,
+            "name": str(p.get("name") or f"Property {uid}"),
+            "state": str(p.get("state") or location.get("state") or "CA"),
+            "has_local_config": uid in local_uids,
+        })
+
+    return sorted(result, key=lambda x: (x.get("name", "").lower(), x.get("property_uid", "")))
+
+
+@router.post("/properties/add")
+async def add_property(body: dict):
+    """Add a property by creating its local config from iGMS discovery data.
+
+    Request body: {"property_uid": "<uid>"}
+    Returns: {"status": "created", "property_uid": "...", "name": "..."}
+            or {"status": "exists"} if already on disk
+    Does NOT overwrite existing files.
+    """
+    from ..engine_proxy import _CONFIG_STORE
+
+    uid = str(body.get("property_uid") or "").strip()
+    if not uid:
+        return {"error": "property_uid is required"}
+
+    config_path = Path(_CONFIG_STORE.config_dir) / f"{uid}.json"
+    if config_path.exists():
+        return {"status": "exists", "property_uid": uid}
+
+    try:
+        client = _get_pricing_client()
+        raw = client.get_all_properties()
+        igms_props = _normalize_igms_properties(raw)
+    except Exception:
+        logger.exception("add_property: iGMS fetch failed")
+        return {"error": "Failed to fetch iGMS properties"}
+
+    igms_match = None
+    for p in igms_props:
+        if str(p.get("property_uid") or "").strip() == uid:
+            igms_match = p
+            break
+
+    if igms_match is None:
+        return {"error": f"Property {uid} not found in iGMS"}
+
+    name = str(igms_match.get("name") or f"Property {uid}").strip()
+    location = igms_match.get("location") or {}
+    state = str(igms_match.get("state") or location.get("state") or "CA").strip() or "CA"
+
+    config = _build_default_property_config(uid, name, state, igms_match)
+    _CONFIG_STORE.save(uid, config)
+
+    return {"status": "created", "property_uid": uid, "name": name}
+
+
 @router.get("/calendar/{year}/{month}", response_model=CalendarResponse)
 async def get_calendar(
     year: int,
@@ -144,14 +226,7 @@ async def get_calendar(
 
     bookings_in_window: list[dict] = []
     try:
-        client = _get_pricing_client()
-        resp = client.get_bookings(
-            page=1,
-            property_uid=property_uid,
-            start_date=from_date,
-            end_date=to_date,
-        )
-        bookings_in_window = resp.get("data", []) if resp else []
+        bookings_in_window = _fetch_bookings_for_window(property_uid, from_date, to_date)
         igms_bookings_count = len(bookings_in_window)
     except Exception:
         logger.exception(
