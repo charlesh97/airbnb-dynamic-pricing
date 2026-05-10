@@ -120,6 +120,44 @@
       </div>
     </section>
 
+    <!-- Strategy Weights / Tuning -->
+    <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined">tune</span>
+        </div>
+        <h3 class="text-headline-lg-mobile text-on-surface">
+          Strategy Weights
+          <span class="info-tooltip">
+            <span class="material-symbols-outlined">info</span>
+            <span class="tooltip-box">How much each pricing strategy contributes to the final price. Weights are normalized to sum to 1.0.</span>
+          </span>
+        </h3>
+      </div>
+      <div class="space-y-3">
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-1.5 block">Demand weight <span id="wt-demand-val" class="text-primary font-bold text-xs ml-1"></span></label>
+          <input type="number" step="0.01" min="0" max="1" id="wt-demand" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-1.5 block">Event weight <span id="wt-event-val" class="text-primary font-bold text-xs ml-1"></span></label>
+          <input type="number" step="0.01" min="0" max="1" id="wt-event" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-1.5 block">Yield weight <span id="wt-yield-val" class="text-primary font-bold text-xs ml-1"></span></label>
+          <input type="number" step="0.01" min="0" max="1" id="wt-yield" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+        <div class="field">
+          <label class="text-label-sm text-on-surface-variant mb-1.5 block">Competitor weight <span id="wt-competitor-val" class="text-primary font-bold text-xs ml-1"></span></label>
+          <input type="number" step="0.01" min="0" max="1" id="wt-competitor" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20">
+        </div>
+      </div>
+      <div class="mt-4 flex items-center justify-between">
+        <span class="text-label-sm text-on-surface-variant">Sum: <span id="weights-sum" class="font-bold text-on-surface">—</span></span>
+        <button id="renorm-btn" class="px-4 py-2 rounded-full bg-surface-container-low text-on-surface text-label-sm font-semibold hover:bg-surface-container-high transition-colors" style="display:none">Renorm to 1.0</button>
+      </div>
+    </section>
+
     <!-- Demand Config -->
     <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
       <div class="flex items-center gap-3 mb-6">
@@ -191,17 +229,7 @@
       </div>
       <h3 class="text-headline-lg-mobile text-on-surface">Local Events</h3>
     </div>
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-surface-container-high">
-          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Name</th>
-          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Date</th>
-          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Factor</th>
-          <th class="w-10"></th>
-        </tr>
-      </thead>
-    <!-- Holiday proximity buffer controls -->
-    <div class="flex items-center gap-3 mb-3">
+    <div class="flex items-center gap-3 mb-4">
       <div class="flex-1">
         <div class="flex items-center gap-2 mb-1">
           <span class="text-label-sm text-on-surface font-medium">Holiday buffer</span>
@@ -225,8 +253,15 @@
         <input type="range" min="-0.15" max="0.15" step="0.01" id="holiday_buffer_slope" class="w-full">
       </div>
     </div>
-    <!-- Auto-detected holidays row removed -->
-
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-surface-container-high">
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Name</th>
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Date</th>
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Factor</th>
+          <th class="w-10"></th>
+        </tr>
+      </thead>
       <tbody id="events-tbody"></tbody>
     </table>
     <button id="add-event-btn" class="mt-4 flex items-center gap-2 text-primary font-label-sm font-semibold hover:text-primary-container transition-colors">
@@ -236,7 +271,7 @@
 
   <!-- Save bar -->
   <div class="sticky bottom-6 flex items-center justify-between bg-surface-container-lowest rounded-full px-6 py-4 shadow-[0_10px_30px_rgba(33,150,243,0.12)] border border-surface-container-low">
-    <div class="text-label-sm text-on-surface-variant" id="dirty-indicator" style="display:none">⚠️ Unsaved changes</div>
+    <div class="w-40 text-label-sm text-on-surface-variant" id="dirty-indicator" style="visibility:hidden;opacity:0">⚠️ Unsaved changes</div>
     <div class="flex items-center gap-4">
       <button id="save-config-btn" class="bg-primary text-on-primary px-8 py-3 rounded-full font-label-sm font-bold shadow-md hover:opacity-90 transition-opacity flex items-center gap-2" disabled>
         <span class="material-symbols-outlined text-sm">save</span> Save Config

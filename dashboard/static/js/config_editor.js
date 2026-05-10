@@ -2,22 +2,6 @@
 
 import { api } from "./api.js";
 
-function updateSaveStatus(success) {
-  const el = document.getElementById("save-status");
-  const dot = document.getElementById("save-dot");
-  const timeEl = document.getElementById("save-time");
-  if (!el || !dot || !timeEl) return;
-  const t = new Date();
-  if (success) {
-    dot.className = "w-2 h-2 rounded-full bg-green-500 flex-shrink-0";
-    timeEl.textContent = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  } else {
-    dot.className = "w-2 h-2 rounded-full bg-red-500 flex-shrink-0";
-    timeEl.textContent = "Failed";
-  }
-  el.style.opacity = "1";
-}
-
 const DEFAULT_PROPERTY = "731418607849470882";
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW_KEYS = ["mon","tue","wed","thu","fri","sat","sun"];
@@ -41,6 +25,7 @@ let config = null;
 let dirty = false;
 let seasonalMonths = {};
 let dragIndex = -1;
+let hoveredIndex = -1;
 
 // ── Init ────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
@@ -49,6 +34,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     switcher.value = getPropertyUid();
     switcher.addEventListener("change", async () => {
       localStorage.setItem("atlas_property_uid", switcher.value);
+      currentPropertyUid = switcher.value;
       dirty = false;
       setDirty(false);
       await loadConfig(switcher.value);
@@ -73,6 +59,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 async function loadConfig(uid) {
+  currentPropertyUid = uid;
   try {
     config = await api.get(`/api/config/${uid}`);
     const nameDisplay = document.getElementById("property-name-display");
@@ -460,9 +447,9 @@ document.getElementById("seasonal-value-input")?.addEventListener("change", () =
   const val = parseFloat(input.value);
   if (dragIndex >= 0 && dragIndex < 12) {
     const key = String(dragIndex + 1).padStart(2, "0");
-    seasonalMonths[key] = val;
+    seasonalMonths[key] = Math.max(0.5, Math.min(2.0, val));
     const pctEl = document.getElementById("seasonal-value-pct");
-    if (pctEl) pctEl.textContent = fmtPct(val);
+    if (pctEl) pctEl.textContent = fmtPct(seasonalMonths[key]);
     drawSeasonalChart();
     markDirty();
   }
@@ -513,7 +500,15 @@ function markDirty() {
 
 function setDirty(isDirty) {
   const indicator = document.getElementById("dirty-indicator");
-  if (indicator) indicator.style.display = isDirty ? "inline" : "none";
+  if (indicator) {
+    if (isDirty) {
+      indicator.style.visibility = "visible";
+      indicator.style.opacity = "1";
+    } else {
+      indicator.style.visibility = "hidden";
+      indicator.style.opacity = "0";
+    }
+  }
 }
 
 // Wire all inputs to markDirty
@@ -569,23 +564,15 @@ async function saveConfig() {
   const btn = document.getElementById("save-config-btn");
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
 
-  // ── Capture old prices BEFORE saving ──
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const keyFields = ["base_price","min_price","max_price","strategy_weights","seasonal_months","demand_config","availability"];
+  let beforeSnapshot = null;
   try {
-    const res = await fetch(`/api/calendar/${year}/${month}?property_uid=${currentPropertyUid}`);
-    const data = await res.json();
-    const oldPricesByDate = {};
-    for (const day of data.days) {
-      oldPricesByDate[day.date] = day.final_price;
-    }
-    sessionStorage.setItem('old_prices', JSON.stringify(oldPricesByDate));
-    sessionStorage.setItem('old_prices_timestamp', Date.now());
+    const before = await api.get(`/api/config/${getPropertyUid()}`);
+    beforeSnapshot = {};
+    for (const k of keyFields) { beforeSnapshot[k] = before[k]; }
   } catch (e) {
-    console.warn("Could not capture old prices:", e);
+    console.warn("Could not capture before config snapshot:", e);
   }
-  // ──────────────────────────────────────
 
   const cfg = JSON.parse(JSON.stringify(config || {}));
 
@@ -643,14 +630,28 @@ async function saveConfig() {
 
   try {
     const saved = await api.put(`/api/config/${getPropertyUid()}`, cfg);
-    updateSaveStatus(true);
+
+    try {
+      const verify = await api.get(`/api/config/${getPropertyUid()}`);
+      const afterSnapshot = {};
+      for (const k of keyFields) { afterSnapshot[k] = verify[k]; }
+      const debug = { before: beforeSnapshot, after: afterSnapshot, saved_cfg: saved };
+      console.log("saved_config_debug", debug);
+      if (beforeSnapshot) {
+        const mismatch = Object.keys(keyFields).find(k => JSON.stringify(beforeSnapshot[k]) !== JSON.stringify(afterSnapshot[k]));
+        if (mismatch) {
+          console.error("Save verify mismatch on field:", mismatch, "before:", beforeSnapshot[mismatch], "after:", afterSnapshot[mismatch]);
+        }
+      }
+    } catch (ve) {
+      console.error("Save verify GET failed:", ve);
+    }
+
     config = saved;
     dirty = false;
     setDirty(false);
-    // Redirect to calendar so user sees new prices immediately
     window.location.href = '/calendar?property_uid=' + currentPropertyUid + '&refreshed=1';
   } catch (e) {
-    updateSaveStatus(false);
     console.error("Save failed:", e);
   } finally {
     if (btn) {
