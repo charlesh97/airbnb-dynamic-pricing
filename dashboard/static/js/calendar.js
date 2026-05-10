@@ -8,30 +8,75 @@ const MONTH_NAMES = ["","January","February","March","April","May","June","July"
 let currentYear = new Date().getFullYear();
 let currentMonth = new Date().getMonth() + 1;
 let currentUid = DEFAULT_PROPERTY;
-let lastFetchTime = null;
-let lastFetchSuccess = false;
 let popupState = { open: false, activeDate: null, activeCell: null };
 let scrollHandler = null;
 let resizeHandler = null;
 
-function updateFetchStatus(success, meta) {
+function fmtUsd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "$0";
+  return `$${Math.round(n)}`;
+}
+
+function fmtPacificTime(value) {
+  const t = value ? new Date(value) : new Date();
+  return t.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Los_Angeles",
+    timeZoneName: "short",
+  });
+}
+
+function updateFetchStatus(state, meta) {
   const el = document.getElementById("fetch-status");
   const dot = document.getElementById("fetch-dot");
   const timeEl = document.getElementById("fetch-time");
   if (!el || !dot || !timeEl) return;
-  if (success && meta) {
-    const t = meta.pulled_at ? new Date(meta.pulled_at) : new Date();
+  if (state === "ok" && meta) {
     dot.className = "w-2 h-2 rounded-full bg-green-500 flex-shrink-0";
-    timeEl.textContent = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  } else if (success) {
-    const t = new Date();
+    timeEl.textContent = fmtPacificTime(meta.pulled_at);
+  } else if (state === "ok") {
     dot.className = "w-2 h-2 rounded-full bg-green-500 flex-shrink-0";
-    timeEl.textContent = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    timeEl.textContent = fmtPacificTime();
+  } else if (state === "partial") {
+    dot.className = "w-2 h-2 rounded-full bg-amber-500 flex-shrink-0";
+    timeEl.textContent = `Partial ${fmtPacificTime(meta?.pulled_at)}`;
   } else {
     dot.className = "w-2 h-2 rounded-full bg-red-500 flex-shrink-0";
     timeEl.textContent = "Failed";
   }
   el.style.opacity = "1";
+}
+
+function renderSyncBanner(sync, days) {
+  const banner = document.getElementById("igms-sync-banner");
+  if (!banner) return;
+
+  banner.classList.add("hidden");
+  banner.className = "mb-4 hidden rounded-xl border px-4 py-3 text-sm font-medium";
+  banner.textContent = "";
+
+  if (!sync) return;
+
+  if (!sync.igms_pull_success) {
+    banner.classList.remove("hidden");
+    banner.classList.add("bg-red-50", "border-red-300", "text-red-800");
+    banner.textContent = sync.igms_error
+      ? `iGMS sync failed: ${sync.igms_error}`
+      : "iGMS sync failed. Live prices may be unavailable.";
+    return;
+  }
+
+  const totalDays = Array.isArray(days) ? days.length : 0;
+  const nonClosedDays = Array.isArray(days)
+    ? days.filter((d) => d.live_price_status !== "closed").length
+    : totalDays;
+  if (nonClosedDays > 0 && sync.igms_price_count < nonClosedDays) {
+    banner.classList.remove("hidden");
+    banner.classList.add("bg-amber-50", "border-amber-300", "text-amber-800");
+    banner.textContent = "Partial iGMS data; some days may be unavailable.";
+  }
 }
 
 function refreshCalendar() {
@@ -88,10 +133,26 @@ async function loadMonth(year, month) {
 
   try {
     const data = await api.get(`/api/calendar/${year}/${month}?property_uid=${propertyUid}`);
-    updateFetchStatus(true, data.sync || null);
-    renderGrid(data.days, propertyUid);
+    const sync = data.sync || null;
+    const days = data.days || [];
+    const missingLiveDays = days.filter((d) => d.live_price_status === "missing" || d.live_price_status === "error").length;
+    const isPartial = Boolean(sync?.igms_pull_success) && missingLiveDays > 0;
+    const statusState = !sync || sync.igms_pull_success
+      ? (isPartial ? "partial" : "ok")
+      : "error";
+    updateFetchStatus(statusState, sync);
+    renderSyncBanner(sync, data.days || []);
+    window._calendarBookings = data.bookings || [];
+    renderGrid(days, propertyUid);
   } catch (e) {
-    updateFetchStatus(false);
+    updateFetchStatus("error");
+    renderSyncBanner(
+      {
+        igms_pull_success: false,
+        igms_error: "Calendar API request failed.",
+      },
+      [],
+    );
     console.error("Failed to load calendar:", e);
   }
 }
@@ -113,13 +174,24 @@ function renderGrid(days, propertyUid) {
   if (!grid) return;
   grid.innerHTML = "";
 
-  sessionStorage.setItem('atlas_calendar_view', JSON.stringify({ year: currentYear, month: currentMonth }));
-
-  const ts = parseInt(sessionStorage.getItem('old_prices_timestamp') || '0');
-  if (Date.now() - ts > 5 * 60 * 1000) {
-    sessionStorage.removeItem('old_prices');
-    sessionStorage.removeItem('old_prices_timestamp');
+  // Precompute booking span map for fast lookup
+  const bookingSpanMap = {};
+  if (window._calendarBookings) {
+    for (const span of window._calendarBookings) {
+      const checkin = span.checkin;
+      const checkout = span.checkout;
+      const checkinDate = new Date(checkin + 'T00:00:00');
+      const checkoutDate = new Date(checkout + 'T00:00:00');
+      const current = new Date(checkinDate);
+      while (current < checkoutDate) {
+        const dateStr = current.toISOString().split('T')[0];
+        bookingSpanMap[dateStr] = span;
+        current.setDate(current.getDate() + 1);
+      }
+    }
   }
+
+  sessionStorage.setItem('atlas_calendar_view', JSON.stringify({ year: currentYear, month: currentMonth }));
 
   const firstDay = new Date(currentYear, currentMonth - 1, 1).getDay();
   for (let i = 0; i < firstDay; i++) {
@@ -129,7 +201,7 @@ function renderGrid(days, propertyUid) {
   }
 
   days.forEach(day => {
-    const cell = buildCell(day, propertyUid);
+    const cell = buildCell(day, propertyUid, bookingSpanMap);
     grid.appendChild(cell);
   });
 
@@ -142,16 +214,20 @@ function renderGrid(days, propertyUid) {
   }
 }
 
-function buildCell(day, propertyUid) {
+function buildCell(day, propertyUid, bookingSpanMap = {}) {
   const cell = document.createElement("div");
   cell.className = "day-cell";
+  const isBookingWindowClosed = day.blocked_reason === "booking_window_closed";
+  const isUnavailable = day.is_available === false;
+  if (isUnavailable) {
+    cell.classList.add("unavailable");
+  }
+  if (isBookingWindowClosed) {
+    cell.classList.add("booking-window-closed");
+  }
 
-  // ── Old price check ──
-  const oldPricesRaw = sessionStorage.getItem('old_prices');
-  const oldPrices = oldPricesRaw ? JSON.parse(oldPricesRaw) : {};
-  const oldPrice = oldPrices[day.date];
-  const hasChanged = oldPrice !== undefined && Math.abs(day.final_price - oldPrice) > 0.01;
-  if (hasChanged) cell.classList.add("changed");
+  // Check for booking membership from precomputed map
+  const cellBooking = bookingSpanMap[day.date] || null;
 
   const dayNum = day.date.split("-")[2].replace(/^0/, "");
 
@@ -163,14 +239,6 @@ function buildCell(day, propertyUid) {
   numSpan.className = "day-cell-num";
   numSpan.textContent = dayNum;
   topRow.appendChild(numSpan);
-
-  // Old price — strikethrough top-right (only when price changed)
-  if (hasChanged) {
-    const oldEl = document.createElement("span");
-    oldEl.className = "old-price";
-    oldEl.textContent = "$" + oldPrice.toFixed(0);
-    topRow.appendChild(oldEl);
-  }
 
   // Dot indicator (holiday = red, high-demand = blue)
   if (day.is_holiday) {
@@ -185,12 +253,62 @@ function buildCell(day, propertyUid) {
 
   cell.appendChild(topRow);
 
-  // Bottom: price — red bold for changed/new prices
+  const livePriceRaw = Number(day.current_airbnb_price);
+  const livePrice = Number.isFinite(livePriceRaw) && livePriceRaw > 0
+    ? livePriceRaw
+    : null;
+  const proposedPriceRaw = Number(day.final_price);
+  const proposedPrice = Number.isFinite(proposedPriceRaw) ? proposedPriceRaw : null;
+  const proposedDelta = livePrice != null && proposedPrice != null ? proposedPrice - livePrice : null;
+  const hasProposedChange = !isUnavailable && (
+    Boolean(day.has_proposed_change) || (proposedDelta != null && Math.abs(proposedDelta) >= 0.01)
+  );
+
+  // Bottom: primary live iGMS price
   const priceDiv = document.createElement("div");
-  priceDiv.className = "day-cell-price" + (day.match_status === "oversell" ? " high-demand" : "");
-  if (hasChanged) priceDiv.classList.add("new-price");
-  priceDiv.textContent = "$" + day.final_price.toFixed(0);
+  priceDiv.className = "day-cell-price";
+  priceDiv.textContent = livePrice != null ? fmtUsd(livePrice) : "—";
   cell.appendChild(priceDiv);
+
+  if (isUnavailable) {
+    const unavailable = document.createElement("div");
+    unavailable.className = "igms-missing-label";
+    unavailable.textContent = isBookingWindowClosed ? "Outside booking window" : "Unavailable";
+    cell.appendChild(unavailable);
+  } else if (livePrice == null) {
+    const missing = document.createElement("div");
+    missing.className = "igms-missing-label";
+    missing.textContent = "iGMS missing";
+    cell.appendChild(missing);
+  }
+
+    if (!isUnavailable && hasProposedChange && proposedPrice != null) {
+    const proposedRow = document.createElement("div");
+    proposedRow.className = "proposed-row";
+
+    const badge = document.createElement("span");
+    badge.className = "new-badge";
+    badge.textContent = "NEW";
+    proposedRow.appendChild(badge);
+
+    const proposedText = document.createElement("span");
+    proposedText.className = "proposed-text";
+    proposedText.textContent = `Proposed ${fmtUsd(proposedPrice)}`;
+    proposedRow.appendChild(proposedText);
+
+    if (proposedDelta != null) {
+      const delta = document.createElement("span");
+      delta.className = "proposed-delta";
+      delta.textContent = `${proposedDelta >= 0 ? "+" : "-"}${fmtUsd(Math.abs(proposedDelta))}`;
+      proposedRow.appendChild(delta);
+    }
+    cell.appendChild(proposedRow);
+  } else if (!isUnavailable && !isBookingWindowClosed && livePrice == null && proposedPrice != null) {
+    const proposedOnly = document.createElement("div");
+    proposedOnly.className = "proposed-only-label";
+    proposedOnly.textContent = `Proposed ${fmtUsd(proposedPrice)} (advisory)`;
+    cell.appendChild(proposedOnly);
+  }
 
   // Holiday label below day number
   if (day.is_holiday) {
@@ -200,12 +318,23 @@ function buildCell(day, propertyUid) {
     cell.appendChild(holidayLabel);
   }
 
-  cell.addEventListener("click", () => openDayPopup(day.date, propertyUid, day.current_airbnb_price, cell));
+  // Render booking bar if this date is within a booking span
+  if (cellBooking) {
+    const stayBar = document.createElement("div");
+    stayBar.className = "booking-stay-bar";
+    stayBar.textContent = cellBooking.label || "";
+    cell.appendChild(stayBar);
+  }
+
+  if (!isBookingWindowClosed) {
+    cell.addEventListener("click", () => openDayPopup(day.date, propertyUid, day.current_airbnb_price, cell, day.blocked_reason));
+  }
 
   return cell;
 }
 
-async function openDayPopup(date, propertyUid, currentPrice, cellElement) {
+async function openDayPopup(date, propertyUid, currentPrice, cellElement, blockedReason = null) {
+  if (blockedReason === "booking_window_closed") return;
   const layer = document.getElementById("day-popup-layer");
   const card = document.getElementById("day-popup-card");
   if (!layer || !card) return;
@@ -246,6 +375,10 @@ async function openDayPopup(date, propertyUid, currentPrice, cellElement) {
 
   try {
     const detail = await api.get(`/api/days/${date}?property_uid=${propertyUid}`);
+    if (detail?.blocked_reason === "booking_window_closed") {
+      closeDayPopup();
+      return;
+    }
     renderDayDetailPopup(detail, currentPrice);
     positionPopup(cellElement);
   } catch (e) {
@@ -277,7 +410,6 @@ function positionPopup(cellElement) {
   layer.classList.remove("hidden");
   const cardH = card.offsetHeight;
   const cardW = card.offsetWidth;
-  layer.classList.add("hidden");
 
   const placeRight = cellRect.right + GAP + cardW <= viewportW - MARGIN;
   let left, top;
@@ -290,6 +422,7 @@ function positionPopup(cellElement) {
 
   card.style.left = left + "px";
   card.style.top = top + "px";
+  card.style.visibility = "visible";
 }
 
 function closeDayPopup() {
@@ -342,23 +475,23 @@ function renderDayDetailPopup(detail, currentPrice) {
   const popupFooter = document.getElementById("popup-footer");
 
   const finalPrice = detail.final_recommended || detail.final_price || 0;
-  const igmsPrice = detail.current_igms_price || currentPrice || null;
+  const hasLive = detail.live_price_status === "ok" && typeof (detail.current_igms_price ?? currentPrice) === "number" && (detail.current_igms_price ?? currentPrice) > 0;
+  const igmsPrice = hasLive ? (detail.current_igms_price ?? currentPrice) : null;
 
   if (popupDate) popupDate.textContent = detail.date;
 
-  let deltaBadge = "";
-  if (igmsPrice != null && igmsPrice > 0) {
-    const delta = finalPrice - igmsPrice;
-    const sign = delta >= 0 ? "+" : "";
-    const cls = delta >= 0 ? "positive" : "negative";
-    deltaBadge = `<span class="delta-chip ${cls}">${sign}$${Math.abs(delta).toFixed(0)} vs iGMS</span>`;
-  }
-  if (popupProp) {
-    popupProp.innerHTML = `<span class="popup-final-price">$${finalPrice.toFixed(0)}</span> ${deltaBadge}`;
-  }
+  const hasProposedChange = detail.is_available !== false && (
+    Boolean(detail.has_proposed_change) || (igmsPrice != null && Math.abs(finalPrice - igmsPrice) >= 0.01)
+  );
+  if (popupProp) popupProp.textContent = "";
 
   const ladder = detail.adjustment_ladder || [];
-  let breakdownRows = "";
+  const baseRate = detail.base_rate || 0;
+  let breakdownRows = `
+    <div class="breakdown-row base-row">
+      <span class="row-label">Base</span>
+      <span class="row-amount">${fmtUsd(baseRate)}</span>
+    </div>`;
 
   if (ladder.length > 0) {
     for (const item of ladder) {
@@ -368,18 +501,18 @@ function renderDayDetailPopup(detail, currentPrice) {
       breakdownRows += `
         <div class="breakdown-row ${cls}">
           <span class="row-label">${item.label}</span>
-          <span class="row-amount">${sign}$${Math.abs(item.amount).toFixed(2)}</span>
+          <span class="row-amount">${sign}${fmtUsd(Math.abs(item.amount))}</span>
         </div>`;
     }
     breakdownRows += `
         <div class="subtotal-row">
           <span class="row-label">Subtotal</span>
-          <span class="row-amount">$${detail.subtotal_before_blend?.toFixed(2) || finalPrice.toFixed(2)}</span>
+          <span class="row-amount">${fmtUsd(detail.subtotal_before_blend ?? finalPrice)}</span>
         </div>`;
   } else {
     const s = detail.seasonal || {};
     const d = detail.demand || {};
-    const base = detail.base_rate || 0;
+    const base = baseRate;
     let running = base;
     const addRow = (label, mult) => {
       const amt = (mult - 1) * base;
@@ -391,7 +524,7 @@ function renderDayDetailPopup(detail, currentPrice) {
       breakdownRows += `
         <div class="breakdown-row ${cls}">
           <span class="row-label">${label}</span>
-          <span class="row-amount">${sign}$${Math.abs(amt).toFixed(2)}</span>
+          <span class="row-amount">${sign}${fmtUsd(Math.abs(amt))}</span>
         </div>`;
     };
     addRow("Seasonality", s.effective_seasonal || 1.0);
@@ -400,7 +533,7 @@ function renderDayDetailPopup(detail, currentPrice) {
     breakdownRows += `
         <div class="subtotal-row">
           <span class="row-label">Subtotal</span>
-          <span class="row-amount">$${running.toFixed(2)}</span>
+          <span class="row-amount">${fmtUsd(running)}</span>
         </div>`;
   }
 
@@ -413,12 +546,12 @@ function renderDayDetailPopup(detail, currentPrice) {
     blendHtml = `
       <div class="blend-row ${cls}">
         <span class="row-label">Blend adjustment</span>
-        <span class="row-amount">${sign}$${Math.abs(blendAmt).toFixed(2)}</span>
+        <span class="row-amount">${sign}${fmtUsd(Math.abs(blendAmt))}</span>
       </div>`;
   }
 
   let igmsHtml = "";
-  if (igmsPrice != null && igmsPrice > 0) {
+  if (igmsPrice != null) {
     const change = finalPrice - igmsPrice;
     const sign = change >= 0 ? "+" : "-";
     const cls = change >= 0 ? "positive" : "negative";
@@ -426,18 +559,35 @@ function renderDayDetailPopup(detail, currentPrice) {
       <div class="igms-line">
         <span class="igms-label">Current iGMS</span>
         <span>
-          <span class="igms-value">$${igmsPrice.toFixed(0)}</span>
-          <span class="igms-change ${cls}">${sign}$${Math.abs(change).toFixed(0)} to push</span>
+          <span class="igms-value">${fmtUsd(igmsPrice)}</span>
+          <span class="igms-change ${cls}">${sign}${fmtUsd(Math.abs(change))} to push</span>
         </span>
+      </div>`;
+  } else {
+    const unavailableLabel = detail.live_price_status === "closed" ? "Outside booking window" : "Unavailable";
+    igmsHtml = `
+      <div class="igms-line igms-line-error">
+        <span class="igms-label">Current iGMS</span>
+        <span class="igms-value">${unavailableLabel}</span>
       </div>`;
   }
 
+  const isBookingWindowClosed = detail.blocked_reason === "booking_window_closed";
+  const proposedHeader = detail.is_available === false
+    ? `<div class="popup-proposed-header"><span class="popup-proposed-price">Unavailable</span></div>`
+    : isBookingWindowClosed
+    ? `<div class="popup-proposed-header"><span class="popup-proposed-price">Outside booking window</span></div>`
+    : hasProposedChange
+      ? `<div class="popup-proposed-header"><span class="new-badge">NEW</span><span class="popup-proposed-price">Proposed ${fmtUsd(finalPrice)}</span></div>`
+      : `<div class="popup-proposed-header"><span class="popup-proposed-price">Proposed ${fmtUsd(finalPrice)}</span></div>`;
+
   popupContent.innerHTML = `
+    ${proposedHeader}
     ${breakdownRows}
     ${blendHtml}
     <div class="final-row">
       <span class="row-label">Final recommended</span>
-      <span class="row-amount">$${finalPrice.toFixed(2)}</span>
+      <span class="row-amount">${fmtUsd(finalPrice)}</span>
     </div>
     ${igmsHtml}`;
 
