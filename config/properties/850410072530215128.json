@@ -1,27 +1,29 @@
 {
-  "property_uid": "645841896772032198",
-  "name": "Freedom Place — 3335 Freedom Pl",
+  "property_uid": "850410072530215128",
+  "name": "Cozy Modern Single Family 5BD 2BA Home",
   "platforms": [
     "airbnb"
   ],
-  "listing_uids": {
-    "airbnb": "645841896772032198_airbnb_209713065"
-  },
-  "bedrooms": 3,
-  "bathrooms": 2,
-  "beds": 4,
-  "sleeps": 8,
+  "listing_uids": [
+    "645841896772032198_airbnb_209713065",
+    "321.2902754.3474794_homeaway_b8c10f32-6047-4b16-ab82-dab78d40d872",
+    "ICYHA6H6MHEID758_airgms_ICYHA6GYLNDCCXL5"
+  ],
+  "bedrooms": 1,
+  "bathrooms": 0,
+  "beds": 1,
+  "sleeps": 0,
   "latitude": 0,
   "longitude": 0,
-  "base_price": 155.0,
-  "min_price": 75.0,
-  "max_price": 600.0,
-  "quality_score": 0.82,
+  "base_price": 250.0,
+  "min_price": 180.0,
+  "max_price": 500.0,
+  "quality_score": 0.85,
   "strategy_weights": {
-    "demand": 0.5,
-    "event": 0.375,
+    "demand": 0.2,
+    "event": 0.4,
     "competitor": 0.0,
-    "yield": 0.125
+    "yield": 0.4
   },
   "availability": {
     "booking_window_days": 120,
@@ -36,9 +38,12 @@
       "blocked": []
     },
     "block_day_before": false,
-    "block_day_after": false
+    "block_day_after": true
   },
   "seasonal_months": {
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
     "01": 1.0,
     "02": 1.0,
     "03": 1.0,
@@ -47,19 +52,16 @@
     "06": 1.0,
     "07": 1.0,
     "08": 1.0,
-    "09": 1.0,
-    "10": 1.0,
-    "11": 1.0,
-    "12": 1.0
+    "09": 1.0
   },
   "dow_multipliers": {
-    "fri": 1.1,
-    "sat": 1.1,
-    "sun": 1.0,
     "mon": 1.0,
     "tue": 1.0,
     "wed": 1.0,
-    "thu": 1.0
+    "thu": 1.0,
+    "fri": 1.15,
+    "sat": 1.15,
+    "sun": 1.1
   },
   "local_events": [],
   "local_events_config": {},
@@ -69,16 +71,17 @@
     "velocity_factor": 0.15,
     "occupancy_factor": 0.3,
     "far_future": {
-      "window_days": 60,
-      "discount": 0.9
+      "window_days": 90,
+      "discount": 1.1
     },
     "last_minute": {
       "window_days": 7,
-      "discount": 0.92,
-      "threshold_occupancy": 0.5
+      "discount": 0.92
     }
   },
   "holiday_buffer_days": 3,
-  "state": "VA",
-  "holiday_buffer_slope": 0.05
+  "state": "CA",
+  "holiday_buffer_slope": -0.05,
+  "seasonal_base_prices": {},
+  "price_adjust": 0
 }

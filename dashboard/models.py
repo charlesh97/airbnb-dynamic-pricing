@@ -90,10 +90,10 @@ class DayDetailResponse(BaseModel):
     booking_window_days: int
     match_status: Optional[str]
     base_rate: float
+    starting_price: float = 0.0
     seasonal: dict
     demand: dict
     event: dict
-    yield_: dict = Field(alias="yield")
     competitor: dict
     strategy_weights: dict
     strategy_prices: dict
@@ -101,6 +101,11 @@ class DayDetailResponse(BaseModel):
     adjustment_ladder: list[AdjustmentItem] = Field(default_factory=list)
     subtotal_before_blend: float = 0.0
     blend_adjustment_amount: float = 0.0
+    was_price_capped: bool = False
+    cap_type: Optional[str] = None
+    min_price_bound: float = 0.0
+    max_price_bound: float = 0.0
+    raw_adjusted_price: float = 0.0
     final_recommended: float = 0.0
     current_igms_price: Optional[float] = None
     live_price_status: str = "ok"

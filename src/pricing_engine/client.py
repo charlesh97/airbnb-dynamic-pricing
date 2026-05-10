@@ -2,30 +2,64 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
-# Re-use config from igms-api-wrapper if available
-try:
-    from igms_wrapper.client import IGMSClient
-    from igms_wrapper.client import APIResponse as _APIResponse
-except ImportError:
+from igms_wrapper.client import APIResponse as _APIResponse
+from igms_wrapper.client import IGMSClient
 
-    class IGMSClient:  # type: ignore[no-redef]
-        pass
 
-    class _APIResponse:  # type: ignore[no-redef]
-        pass
+_DictStrAnyList = Dict[str, List[Dict[str, Any]]]
+_DictStrAny = Dict[str, Any]
+_ListDictStrAny = List[Dict[str, Any]]
+_APIResponseList = List[_APIResponse]
 
 
 class PricingClient(IGMSClient):
     """Extended IGMS client with pricing management capabilities.
 
-    Write endpoint (confirmed working with calendar-control scope):
-        POST /api/v1/set-calendar-batch
-
-    This calls the parent IGMSClient.set_calendar_batch() which writes prices
-    directly without requiring the pricing-management scope.
+    Write endpoints (confirmed working with calendar-control scope):
+        POST /api/v1/set-calendar-batch  — set prices + min_stay for dates
+        POST /api/v2/set-property-calendar-availability  — set date ranges available/unavailable
     """
+
+    def set_calendar_batch(
+        self,
+        property_uid: str,
+        days: _ListDictStrAny,
+    ) -> _APIResponse:
+        """Set calendar prices/min-stay for a batch of dates.
+
+        Each day dict: {date: "YYYY-MM-DD", price?: float, currency?: str, min_stay?: int}
+        """
+        payload = {
+            "property_uid": property_uid,
+            "days": days,
+        }
+        return self.request(
+            "/api/v1/set-calendar-batch",
+            method="POST",
+            json_body=payload,
+        )
+
+    def set_property_availability(
+        self,
+        property_uid: str,
+        start_date: str,
+        end_date: str,
+        is_available: bool = False,
+    ) -> _APIResponse:
+        """Mark a date range as available or unavailable."""
+        payload = {
+            "property_uid": property_uid,
+            "start_date": start_date,
+            "end_date": end_date,
+            "is_available": is_available,
+        }
+        return self.request(
+            "/api/v2/set-property-calendar-availability",
+            method="POST",
+            json_body=payload,
+        )
 
     def update_calendar_price(
         self,
@@ -36,23 +70,7 @@ class PricingClient(IGMSClient):
         currency: str = "USD",
         min_stay: int | None = None,
     ) -> _APIResponse:
-        """Update the nightly price for a specific date on a listing.
-
-        Uses set_calendar_batch (calendar-control scope) — no pricing-management
-        scope required.
-
-        Args:
-            listing_uid:   The listing UID (e.g. "645841896772032198_airbnb_209713065").
-            property_uid:  The parent property UID (e.g. "6925833560458409984").
-            date:          Date string "YYYY-MM-DD".
-            price:         New nightly price in USD.
-            currency:      Currency code (default USD).
-            min_stay:      Optional minimum stay requirement.
-
-        Returns:
-            APIResponse. On success: ``{"data": {"request_uids": [n]}}``.
-            On auth error: ``{"error": {"code": 13, "message": "Property merged"}}``.
-        """
+        """Update the nightly price for a specific date on a listing."""
         return self.set_calendar_batch(
             property_uid=property_uid,
             days=[{
@@ -65,25 +83,23 @@ class PricingClient(IGMSClient):
 
     def bulk_update_prices(
         self,
-        updates: list[dict[str, Any]],
-    ) -> list[_APIResponse]:
+        updates: _ListDictStrAny,
+    ) -> _APIResponseList:
         """Bulk update prices for multiple dates.
 
         Each entry in updates should have:
-            listing_uid, property_uid, date, price, currency?, min_stay?
+            property_uid, date, price, currency?, min_stay?
 
-        Groups by listing_uid and calls set_calendar_batch once per listing.
+        Groups by property_uid and calls set_calendar_batch once per property.
         """
-        by_listing: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        by_prop: _DictStrAnyList = {}
         for u in updates:
-            lst = u.get("listing_uid", "")
             pid = u.get("property_uid", "")
-            if lst:
-                by_listing.setdefault((lst, pid), []).append(u)
+            if pid:
+                by_prop.setdefault(pid, []).append(u)
 
-        results: list[_APIResponse] = []
-        for (listing_uid, property_uid), items in by_listing.items():
-            del listing_uid  # unused; property_uid drives the API call
+        results: _APIResponseList = []
+        for pid, items in by_prop.items():
             days = [
                 {
                     "date": item["date"],
@@ -93,7 +109,7 @@ class PricingClient(IGMSClient):
                 }
                 for item in items
             ]
-            result = self.set_calendar_batch(property_uid=property_uid, days=days)
+            result = self.set_calendar_batch(property_uid=pid, days=days)
             results.append(result)
         return results
 
@@ -105,8 +121,21 @@ class PricingClient(IGMSClient):
         min_stay: int,
     ) -> _APIResponse:
         """Set minimum stay for a specific date on a listing."""
-        del listing_uid  # unused; property_uid drives the API call
         return self.set_calendar_batch(
             property_uid=property_uid,
             days=[{"date": date, "min_stay": min_stay, "currency": "USD"}],
         )
+
+    # Compatibility wrappers: some runtime environments ship older/missing
+    # igms_wrapper methods, so we expose these here unconditionally.
+    def get_calendar(self, property_uid: str, from_date: str, to_date: str) -> Any:
+        params = {
+            "property_uid": property_uid,
+            "from_date": from_date,
+            "to_date": to_date,
+        }
+        return self.request("/api/v1/get-calendar-data", params=params).payload
+
+    def get_bookings(self, page: int = 1, **filters: Any) -> Any:
+        params = {"page": page, **filters}
+        return self.request("/api/v1/bookings", params=params).payload

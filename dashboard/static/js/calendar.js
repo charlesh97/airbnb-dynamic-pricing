@@ -12,6 +12,39 @@ let popupState = { open: false, activeDate: null, activeCell: null };
 let scrollHandler = null;
 let resizeHandler = null;
 
+// Material-ish booking palette (high-contrast against white text).
+const BOOKING_COLORS = [
+  "#00695C", // teal 800
+  "#1565C0", // blue 800
+  "#6A1B9A", // purple 800
+  "#EF6C00", // orange 800
+  "#2E7D32", // green 800
+  "#AD1457", // pink 800
+  "#4E342E", // brown 800
+  "#283593", // indigo 800
+  "#0277BD", // light blue 800
+  "#C62828", // red 800
+];
+
+function hashString(value) {
+  const s = String(value || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  }
+  return h;
+}
+
+function bookingColor(span) {
+  const key = span?.booking_id
+    || span?.reservation_code
+    || span?.guest_name
+    || span?.label
+    || `${span?.listing_uid || ""}:${span?.checkin || ""}:${span?.checkout || ""}`;
+  const idx = hashString(key) % BOOKING_COLORS.length;
+  return BOOKING_COLORS[idx];
+}
+
 function fmtUsd(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "$0";
@@ -81,7 +114,7 @@ function renderSyncBanner(sync, days) {
 }
 
 function refreshCalendar() {
-  loadMonth(currentYear, currentMonth);
+  loadMonth(currentYear, currentMonth, { forceRefresh: true });
 }
 
 function getPropertyUid() {
@@ -116,13 +149,15 @@ function initCalendar() {
     window.history.replaceState(null, '', newUrl);
   }
 
-  loadMonth(currentYear, currentMonth);
+  // Treat initial page load as a manual refresh event and force a fresh booking pull.
+  loadMonth(currentYear, currentMonth, { forceRefresh: true });
 }
 
-async function loadMonth(year, month) {
+async function loadMonth(year, month, opts = {}) {
   currentYear = year;
   currentMonth = month;
   const propertyUid = currentUid || getPropertyUid();
+  const forceRefresh = Boolean(opts.forceRefresh);
   const uidRef = document.getElementById("property-uid-ref");
   if (uidRef) uidRef.textContent = propertyUid;
 
@@ -138,7 +173,9 @@ async function loadMonth(year, month) {
   if (yearLabel) yearLabel.textContent = year + " Overview";
 
   try {
-    const data = await api.get(`/api/calendar/${year}/${month}?property_uid=${propertyUid}`);
+    const qs = new URLSearchParams({ property_uid: propertyUid });
+    if (forceRefresh) qs.set("force_refresh", "1");
+    const data = await api.get(`/api/calendar/${year}/${month}?${qs.toString()}`);
     const sync = data.sync || null;
     const days = data.days || [];
     const missingLiveDays = days.filter((d) => d.live_price_status === "missing" || d.live_price_status === "error").length;
@@ -191,7 +228,8 @@ function renderGrid(days, propertyUid) {
       const current = new Date(checkinDate);
       while (current < checkoutDate) {
         const dateStr = current.toISOString().split('T')[0];
-        bookingSpanMap[dateStr] = span;
+        if (!bookingSpanMap[dateStr]) bookingSpanMap[dateStr] = [];
+        bookingSpanMap[dateStr].push(span);
         current.setDate(current.getDate() + 1);
       }
     }
@@ -232,8 +270,19 @@ function buildCell(day, propertyUid, bookingSpanMap = {}) {
     cell.classList.add("booking-window-closed");
   }
 
-  // Check for booking membership from precomputed map
-  const cellBooking = bookingSpanMap[day.date] || null;
+  // Check for booking membership from precomputed map.
+  // If multiple bookings appear on same date, prefer earliest check-in then longest stay.
+  const bookingsToday = bookingSpanMap[day.date] || [];
+  const cellBooking = bookingsToday.length > 0
+    ? bookingsToday
+        .slice()
+        .sort((a, b) => {
+          const ac = (a.checkin || "");
+          const bc = (b.checkin || "");
+          if (ac !== bc) return ac.localeCompare(bc);
+          return Number(b.nights || 0) - Number(a.nights || 0);
+        })[0]
+    : null;
 
   const dayNum = day.date.split("-")[2].replace(/^0/, "");
 
@@ -279,7 +328,11 @@ function buildCell(day, propertyUid, bookingSpanMap = {}) {
   if (isUnavailable) {
     const unavailable = document.createElement("div");
     unavailable.className = "igms-missing-label";
-    unavailable.textContent = isBookingWindowClosed ? "Outside booking window" : "Unavailable";
+    if (cellBooking) {
+      unavailable.textContent = "Booked";
+    } else {
+      unavailable.textContent = isBookingWindowClosed ? "Outside booking window" : "Unavailable";
+    }
     cell.appendChild(unavailable);
   } else if (livePrice == null) {
     const missing = document.createElement("div");
@@ -327,8 +380,22 @@ function buildCell(day, propertyUid, bookingSpanMap = {}) {
   // Render booking bar if this date is within a booking span
   if (cellBooking) {
     const stayBar = document.createElement("div");
+    const isStart = day.date === cellBooking.checkin;
+    const checkoutDate = new Date(cellBooking.checkout + "T00:00:00");
+    checkoutDate.setDate(checkoutDate.getDate() - 1);
+    const checkoutNight = checkoutDate.toISOString().split("T")[0];
+    const isEnd = day.date === checkoutNight;
+
     stayBar.className = "booking-stay-bar";
-    stayBar.textContent = cellBooking.label || "";
+    if (isStart && isEnd) stayBar.classList.add("single");
+    else if (isStart) stayBar.classList.add("start");
+    else if (isEnd) stayBar.classList.add("end");
+    else stayBar.classList.add("middle");
+    stayBar.style.backgroundColor = bookingColor(cellBooking);
+    stayBar.textContent = isStart ? (cellBooking.label || cellBooking.guest_name || "Booked") : "";
+    if (bookingsToday.length > 1 && isStart) {
+      stayBar.textContent = `${stayBar.textContent} +${bookingsToday.length - 1}`;
+    }
     cell.appendChild(stayBar);
   }
 
@@ -495,7 +562,7 @@ function renderDayDetailPopup(detail, currentPrice) {
   const baseRate = detail.base_rate || 0;
   let breakdownRows = `
     <div class="breakdown-row base-row">
-      <span class="row-label">Base</span>
+      <span class="row-label">Base Price</span>
       <span class="row-amount">${fmtUsd(baseRate)}</span>
     </div>`;
 
@@ -549,9 +616,15 @@ function renderDayDetailPopup(detail, currentPrice) {
     const isPos = blendAmt >= 0;
     const cls = isPos ? "positive" : "negative";
     const sign = isPos ? "+" : "-";
+    let adjustmentLabel = "Blend adjustment";
+    if (detail.was_price_capped) {
+      if (detail.cap_type === "max") adjustmentLabel = "Max price cap";
+      else if (detail.cap_type === "min") adjustmentLabel = "Min price cap";
+      else adjustmentLabel = "Price cap";
+    }
     blendHtml = `
       <div class="blend-row ${cls}">
-        <span class="row-label">Blend adjustment</span>
+        <span class="row-label">${adjustmentLabel}</span>
         <span class="row-amount">${sign}${fmtUsd(Math.abs(blendAmt))}</span>
       </div>`;
   }

@@ -1,5 +1,6 @@
 """FastAPI app — iGMS Dynamic Pricing Dashboard."""
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -10,6 +11,31 @@ from fastapi.templating import Jinja2Templates
 
 from .routes import calendar, config, day_detail, pricing, push
 from .engine_proxy import get_properties
+from pricing_engine.config import EngineConfig
+
+
+def _setup_logging() -> None:
+    """Configure app logging from LOG_LEVEL/.env."""
+    repo_root = Path(__file__).parent.parent
+    cfg = EngineConfig.from_env(repo_root / ".env")
+    level_name = (cfg.log_level or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+
+    # Keep uvicorn and app loggers aligned with requested level.
+    logging.getLogger("uvicorn").setLevel(level)
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(level)
+    logging.getLogger("dashboard").setLevel(level)
+    logging.getLogger("pricing_engine").setLevel(level)
+
+
+_setup_logging()
 
 app = FastAPI(title="iGMS Dynamic Pricing Dashboard", version="1.0.0")
 
@@ -51,7 +77,8 @@ def _get_current_uid(request: Request) -> str:
     """Extract current_uid from URL params or return default."""
     uid = request.query_params.get("property_uid", "")
     if not uid:
-        uid = "731418607849470882"
+        props = get_properties()
+        uid = props[0]["property_uid"] if props else "731418607849470882"
     return uid
 
 

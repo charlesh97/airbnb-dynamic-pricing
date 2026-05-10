@@ -1,4 +1,4 @@
-"""Pricing engine — runs strategies and computes weighted final prices."""
+"""Pricing engine — computes stacked pricing adjustments."""
 
 from __future__ import annotations
 
@@ -10,11 +10,17 @@ from .strategies import (
     AvailabilityResult,
     AvailabilityStrategy,
     CompetitorStrategy,
-    DemandStrategy,
     EventStrategy,
-    PriceRecommendation,
     YieldStrategy,
-    PricingStrategy, )
+)
+from .strategies.demand import (
+    MODULE_MULTIPLIER_CEILING,
+    MODULE_MULTIPLIER_FLOOR,
+    calculate_booking_velocity_multiplier,
+    calculate_occupancy_pacing_multiplier,
+    clamp,
+    get_pricing_adjustments_config,
+)
 
 
 @dataclass
@@ -51,16 +57,12 @@ def apply_manual_overrides(
     date: str,
     config: dict[str, Any],
 ) -> DatePrice:
-    """Apply manual price/availability overrides from config.
-
-    Looks in config["manual_overrides"] for a {date: {price_override, availability}} entry.
-    """
+    """Apply manual price/availability overrides from config."""
     overrides = config.get("manual_overrides", {})
     entry = overrides.get(date, {})
     if not entry:
         return date_price
 
-    # Override price if specified
     price_override = entry.get("price_override")
     is_available_override = entry.get("availability")
 
@@ -77,25 +79,35 @@ def apply_manual_overrides(
 
 
 def dataclass_replace(obj, **changes):
-    """Minimal dataclass replace (works without from __future__ import)."""
+    """Minimal dataclass replace (works without dataclasses.replace)."""
     import copy
+
     new_obj = copy.copy(obj)
     for k, v in changes.items():
         setattr(new_obj, k, v)
     return new_obj
 
 
+def _parse_date(value: str) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(value[:19], fmt)
+        except ValueError:
+            pass
+    return None
+
+
 class PricingEngine:
-    """Runs pricing strategies and computes a weighted final price."""
+    """Runs pricing strategies and computes a stacked final price."""
 
     def __init__(self, default_weights: dict[str, float] | None = None) -> None:
-        self.strategies: list[PricingStrategy] = [
-            DemandStrategy(),
-            EventStrategy(),
-            YieldStrategy(),
-            CompetitorStrategy(),
-        ]
+        self.event_strategy = EventStrategy()
+        self.yield_strategy = YieldStrategy()
+        self.competitor_strategy = CompetitorStrategy()
         self.availability_strategy = AvailabilityStrategy()
+        # Kept only for compatibility in API payloads; no longer used in pricing math.
         self._default_weights = default_weights or {
             "demand": 0.35,
             "event": 0.35,
@@ -104,107 +116,105 @@ class PricingEngine:
         }
 
     def _normalize_weights(self, weights: dict[str, float]) -> dict[str, float]:
-        """Normalize strategy weights to sum to 1.0.
-
-        If total weight is 0 or already 1.0, returns weights unchanged.
-        Otherwise scales all weights proportionally.
-        """
+        """Normalize strategy weights to sum to 1.0 (compat output only)."""
         total = sum(weights.values())
         if total <= 0 or total == 1.0:
             return weights
         return {k: round(v / total, 3) for k, v in weights.items()}
 
-    def _explain(
+    def _price_bounds(
         self,
-        base_price: float,
-        weights: dict[str, float],
-        strategy_prices: dict[str, float],
-        all_factors: dict[str, Any],
-        seasonal_multiplier: float,
-        dow_multiplier: float,
-        demand_multiplier: float,
-        yield_multiplier: float,
-        competitor_multiplier: float,
-        last_minute_adjustment: float,
-        occupancy_adjustment: float,
-    ) -> dict[str, Any]:
-        """Build an explanation dict for a DatePrice.
+        config: dict[str, Any],
+        props_config: dict[str, Any],
+        prop: PropertyConfig,
+    ) -> tuple[float, float]:
+        min_p_raw = props_config.get("min_price")
+        if min_p_raw is None:
+            min_p_raw = config.get("min_price")
+        if min_p_raw is None:
+            min_p_raw = config.get("default_min_price", prop.min_price)
 
-        This maps strategy prices back to their component multipliers
-        and shows how each contributes to the final weighted price.
-        """
-        total_weight = sum(weights.values())
-        if total_weight <= 0:
-            total_weight = 1.0
+        max_p_raw = props_config.get("max_price")
+        if max_p_raw is None:
+            max_p_raw = config.get("max_price")
+        if max_p_raw is None:
+            max_p_raw = config.get("default_max_price", prop.max_price)
 
-        strategy_breakdown = {}
-        weighted_price_before_caps = 0.0
+        return float(min_p_raw), float(max_p_raw)
 
-        for strat_name in ("demand", "event", "yield", "competitor"):
-            price = strategy_prices.get(strat_name, base_price)
-            w = weights.get(strat_name, 0.0)
-            contribution = price * (w / total_weight)
-            weighted_price_before_caps += contribution
-            strategy_breakdown[strat_name] = {
-                "price": round(price, 2),
-                "weight": round(w, 3),
-                "contribution": round(contribution, 2),
-            }
+    def _count_pacing_nights(
+        self,
+        *,
+        property_uid: str,
+        target: datetime,
+        bookings_in_window: list[dict[str, Any]],
+        merged_config: dict[str, Any],
+        window_days: int,
+    ) -> tuple[int, int]:
+        """Return booked_nights and eligible nights for occupancy pacing."""
+        window_start = target - timedelta(days=window_days)
 
-        # competitor disabled note
-        competitor_status = all_factors.get("competitor", {}).get("status", "ok")
-        if competitor_status == "disabled":
-            competitor_adjustment = "disabled"
-        else:
-            competitor_adjustment = round(competitor_multiplier, 3)
+        booked_nights = 0
+        for booking in bookings_in_window:
+            b_start = _parse_date(booking.get("checkin", ""))
+            b_end = _parse_date(booking.get("checkout", ""))
+            if not b_start or not b_end:
+                continue
+            overlap_start = max(window_start, b_start)
+            overlap_end = min(target, b_end)
+            if overlap_end > overlap_start:
+                booked_nights += (overlap_end - overlap_start).days
 
-        # Determine cap application
-        min_cap_applied = False
-        max_cap_applied = False
+        eligible_nights = 0
+        cursor = window_start
+        while cursor < target:
+            avail = self.compute_availability(
+                property_uid=property_uid,
+                date=cursor.strftime("%Y-%m-%d"),
+                calendar_entry=None,
+                bookings_in_window=bookings_in_window,
+                config=merged_config,
+            )
+            # Eligible nights are those not blocked by booking-window closure.
+            if getattr(avail, "blocked_reason", None) != "booking_window_closed":
+                eligible_nights += 1
+            cursor += timedelta(days=1)
 
-        # Summary sentence
-        dow_label = "weekend" if dow_multiplier > 1.05 else "weekday"
-        season_label = ""
-        if seasonal_multiplier > 1.3:
-            season_label = "peak season"
-        elif seasonal_multiplier < 0.9:
-            season_label = "off-season"
+        return booked_nights, eligible_nights
 
-        summary_parts = []
-        if season_label:
-            summary_parts.append(season_label.capitalize())
-        if dow_label:
-            summary_parts.append(dow_label)
-        if occupancy_adjustment < 0.95:
-            summary_parts.append("low occupancy")
-        if last_minute_adjustment < 0.95:
-            summary_parts.append("last-minute discount")
-        elif last_minute_adjustment > 1.05:
-            summary_parts.append("last-minute premium")
+    def _count_velocity_bookings(
+        self,
+        *,
+        bookings_in_window: list[dict[str, Any]],
+        target: datetime,
+        recent_window_days: int,
+        baseline_window_days: int,
+    ) -> tuple[int, int]:
+        recent_start = target - timedelta(days=recent_window_days)
+        baseline_start = target - timedelta(days=baseline_window_days)
 
-        if not summary_parts:
-            summary_parts = ["Normal pricing conditions"]
+        recent = 0
+        baseline = 0
+        for booking in bookings_in_window:
+            created = _parse_date(booking.get("created_dttm", ""))
+            if not created:
+                continue
+            if baseline_start <= created < target:
+                baseline += 1
+            if recent_start <= created < target:
+                recent += 1
+        return recent, baseline
 
-        return {
-            "base_price": round(base_price, 2),
-            "season_applied": season_label or "normal",
-            "season_multiplier": round(seasonal_multiplier, 3),
-            "dow_multiplier": round(dow_multiplier, 3),
-            "holiday_multiplier": round(
-                all_factors.get("event", {}).get("holiday_multiplier", 1.0), 3
-            ),
-            "demand_multiplier": round(demand_multiplier, 3),
-            "yield_multiplier": round(yield_multiplier, 3),
-            "last_minute_adjustment": round(last_minute_adjustment, 3),
-            "occupancy_adjustment": round(occupancy_adjustment, 3),
-            "competitor_adjustment": competitor_adjustment,
-            "weighted_price_before_caps": round(weighted_price_before_caps, 2),
-            "min_cap_applied": min_cap_applied,
-            "max_cap_applied": max_cap_applied,
-            "final_price": 0.0,  # filled by caller
-            "summary": ", ".join(summary_parts),
-            "strategy_breakdown": strategy_breakdown,
-        }
+    def _extract_starting_price(
+        self,
+        event_factors: dict[str, Any],
+        yield_factors: dict[str, Any],
+        merged_config: dict[str, Any],
+    ) -> tuple[float, float, float]:
+        base_price = float(event_factors.get("base_price", merged_config.get("base_price", merged_config.get("default_base_price", 200.0))))
+        event_multiplier = float(event_factors.get("seasonal_multiplier", 1.0)) * float(event_factors.get("dow_multiplier", 1.0))
+        yield_multiplier = float(yield_factors.get("final_multiplier", 1.0))
+        return base_price, event_multiplier, yield_multiplier
 
     def compute_price(
         self,
@@ -216,12 +226,13 @@ class PricingEngine:
         config: dict[str, Any],
         property_override: PropertyConfig | None = None,
     ) -> DatePrice:
-        """Compute the weighted price for a single property/date."""
-
+        """Compute the stacked price for a single property/date."""
         props_config = config.get("property_overrides", {}).get(property_uid, {})
         prop = property_override or PropertyConfig(property_uid=property_uid, base_price=100.0)
+        merged_config = {**config, **props_config}
+        target = datetime.strptime(date, "%Y-%m-%d")
 
-        # Weights precedence: property_override > property_overrides[uid] > global config > defaults
+        # Compatibility-only output: no longer used for final price math.
         weights = (
             property_override.strategy_weights
             if property_override and property_override.strategy_weights
@@ -231,92 +242,156 @@ class PricingEngine:
             if config.get("strategy_weights")
             else self._default_weights
         )
-
-        # Normalize weights
         weights = self._normalize_weights(weights)
-        total_weight = sum(weights.values())
 
-        strategy_prices: dict[str, float] = {}
-        strategy_confidences: dict[str, float] = {}
-        all_factors: dict[str, Any] = {}
+        event_rec = self.event_strategy.compute(
+            property_uid=property_uid,
+            date=date,
+            calendar_entry=calendar_entry,
+            bookings_in_window=bookings_in_window,
+            config=merged_config,
+        )
+        yield_rec = self.yield_strategy.compute(
+            property_uid=property_uid,
+            date=date,
+            calendar_entry=calendar_entry,
+            bookings_in_window=bookings_in_window,
+            config=merged_config,
+        )
+        competitor_rec = self.competitor_strategy.compute(
+            property_uid=property_uid,
+            date=date,
+            calendar_entry=calendar_entry,
+            bookings_in_window=bookings_in_window,
+            config=merged_config,
+        )
 
-        for strat in self.strategies:
-            rec = strat.compute(
-                property_uid=property_uid,
-                date=date,
-                calendar_entry=calendar_entry,
-                bookings_in_window=bookings_in_window,
-                config={**config, **props_config},
+        base_price, event_multiplier, yield_multiplier = self._extract_starting_price(
+            event_rec.factors,
+            yield_rec.factors,
+            merged_config,
+        )
+        starting_price = base_price * event_multiplier * yield_multiplier
+
+        adjustment_cfg = get_pricing_adjustments_config(merged_config)
+        occ_cfg = adjustment_cfg["occupancy_pacing"]
+        vel_cfg = adjustment_cfg["booking_velocity"]
+
+        booked_nights, available_nights = self._count_pacing_nights(
+            property_uid=property_uid,
+            target=target,
+            bookings_in_window=bookings_in_window,
+            merged_config=merged_config,
+            window_days=occ_cfg["window_days"],
+        )
+        occupancy_pacing = calculate_occupancy_pacing_multiplier(
+            booked_nights=booked_nights,
+            available_nights=available_nights,
+            **occ_cfg,
+        )
+
+        recent_bookings, baseline_bookings = self._count_velocity_bookings(
+            bookings_in_window=bookings_in_window,
+            target=target,
+            recent_window_days=vel_cfg["recent_window_days"],
+            baseline_window_days=vel_cfg["baseline_window_days"],
+        )
+        booking_velocity = calculate_booking_velocity_multiplier(
+            recent_bookings=recent_bookings,
+            baseline_bookings=baseline_bookings,
+            **vel_cfg,
+        )
+
+        occupancy_multiplier = clamp(
+            float(occupancy_pacing["multiplier"]),
+            MODULE_MULTIPLIER_FLOOR,
+            MODULE_MULTIPLIER_CEILING,
+        )
+        velocity_multiplier = clamp(
+            float(booking_velocity["multiplier"]),
+            MODULE_MULTIPLIER_FLOOR,
+            MODULE_MULTIPLIER_CEILING,
+        )
+
+        price_after_occupancy = starting_price * occupancy_multiplier
+        price_after_velocity = price_after_occupancy * velocity_multiplier
+
+        competitor_multiplier = 1.0
+        if competitor_rec.confidence > 0 and competitor_rec.suggested_price > 0 and price_after_velocity > 0:
+            competitor_multiplier = clamp(
+                competitor_rec.suggested_price / price_after_velocity,
+                MODULE_MULTIPLIER_FLOOR,
+                MODULE_MULTIPLIER_CEILING,
             )
-            # Skip zero-confidence strategies (inactive data sources)
-            if rec.confidence == 0.0:
-                continue
-            strategy_prices[strat.name] = rec.suggested_price
-            strategy_confidences[strat.name] = rec.confidence
-            all_factors[strat.name] = rec.factors
+        price_after_competitor = price_after_velocity * competitor_multiplier
 
-        # Weighted average
-        weighted_sum = sum(
-            strategy_prices.get(name, 0.0) * (weights.get(name, 0.0) / total_weight)
-            for name in set(weights.keys()) | set(strategy_prices.keys())
-        )
+        price_adjust = float(merged_config.get("price_adjust", 0.0) or 0.0)
+        raw_adjusted_price = price_after_competitor * (1.0 + price_adjust)
 
-        # Clamp to bounds — use config defaults when no property override exists
-        min_p = float(props_config.get("min_price", config.get("default_min_price", prop.min_price)))
-        max_p = float(props_config.get("max_price", config.get("default_max_price", prop.max_price)))
-        final_price = max(min_p, min(max_p, weighted_sum))
+        min_p, max_p = self._price_bounds(config, props_config, prop)
+        final_price = max(min_p, min(max_p, raw_adjusted_price))
 
-        # Confidence: weighted average of strategy confidences
-        confidence = sum(
-            strategy_confidences.get(name, 0.5) * (weights.get(name, 0.0) / total_weight)
-            for name in weights
-        )
+        demand_multiplier = occupancy_multiplier * velocity_multiplier
+        strategy_prices = {
+            "event": round(event_rec.suggested_price, 2),
+            "yield": round(yield_rec.suggested_price, 2),
+            "demand": round(starting_price * demand_multiplier, 2),
+        }
+        if competitor_rec.confidence > 0:
+            strategy_prices["competitor"] = round(competitor_rec.suggested_price, 2)
 
-        # Apply global price adjustment override
-        price_adjust = config.get("price_adjust", 0)
-        if price_adjust != 0:
-            final_price = final_price * (1 + price_adjust)
+        confidence_parts = [event_rec.confidence, yield_rec.confidence, 0.8, 0.8]
+        if competitor_rec.confidence > 0:
+            confidence_parts.append(competitor_rec.confidence)
+        confidence = round(sum(confidence_parts) / len(confidence_parts), 3)
 
-        # ─── Build explanation ───────────────────────────────────────────
-        ev = all_factors.get("event", {})
-        dm = all_factors.get("demand", {})
-        yt = all_factors.get("yield", {})
-        co = all_factors.get("competitor", {})
+        all_factors: dict[str, Any] = {
+            "event": {**event_rec.factors, "event_multiplier": round(event_multiplier, 4)},
+            "yield": {**yield_rec.factors, "yield_multiplier": round(yield_multiplier, 4)},
+            "competitor": {
+                **competitor_rec.factors,
+                "enabled": bool((merged_config.get("external_market_data") or {}).get("enabled", False)),
+                "multiplier": round(competitor_multiplier, 4),
+            },
+            "demand": {
+                "demand_multiplier": round(demand_multiplier, 4),
+                "occupancy_pacing": occupancy_pacing,
+                "booking_velocity": booking_velocity,
+                "occupancy_multiplier": round(occupancy_multiplier, 4),
+                "velocity_multiplier": round(velocity_multiplier, 4),
+                "booked_nights": booked_nights,
+                "available_nights": available_nights,
+                "recent_bookings": recent_bookings,
+                "baseline_bookings": baseline_bookings,
+            },
+            "explanation": {
+                "base_price": round(base_price, 2),
+                "starting_price": round(starting_price, 2),
+                "event_multiplier": round(event_multiplier, 4),
+                "yield_multiplier": round(yield_multiplier, 4),
+                "occupancy_multiplier": round(occupancy_multiplier, 4),
+                "velocity_multiplier": round(velocity_multiplier, 4),
+                "competitor_multiplier": round(competitor_multiplier, 4),
+                "price_adjust": price_adjust,
+                "price_after_occupancy": round(price_after_occupancy, 2),
+                "price_after_velocity": round(price_after_velocity, 2),
+                "price_after_competitor": round(price_after_competitor, 2),
+                "raw_adjusted_price": round(raw_adjusted_price, 2),
+                "min_price": round(min_p, 2),
+                "max_price": round(max_p, 2),
+                "final_price": round(final_price, 2),
+            },
+        }
 
-        seasonal_mult = ev.get("seasonal_multiplier", 1.0)
-        dow_mult = ev.get("dow_multiplier", 1.0)
-        demand_mult = dm.get("demand_multiplier", 1.0)
-        yield_mult = yt.get("final_multiplier", yt.get("lead_factor", 1.0))
-        last_min_adj = yt.get("last_minute_adjustment", 1.0)
-        occupancy_adj = dm.get("occupancy_multiplier", 1.0)
-        competitor_mult = 1.0 if co.get("status") == "disabled" else co.get("adjustment_factor", 1.0)
-
-        explanation = self._explain(
-            base_price=ev.get("base_price", config.get("default_base_price", 200.0)),
-            weights=weights,
-            strategy_prices=strategy_prices,
-            all_factors=all_factors,
-            seasonal_multiplier=seasonal_mult,
-            dow_multiplier=dow_mult,
-            demand_multiplier=demand_mult,
-            yield_multiplier=yield_mult,
-            competitor_multiplier=competitor_mult,
-            last_minute_adjustment=last_min_adj,
-            occupancy_adjustment=occupancy_adj,
-        )
-        explanation["final_price"] = round(final_price, 2)
-
-        result = DatePrice(
+        return DatePrice(
             date=date,
             property_uid=property_uid,
             final_price=round(final_price, 2),
-            strategy_prices={k: round(v, 2) for k, v in strategy_prices.items()},
+            strategy_prices=strategy_prices,
             strategy_weights={k: round(v, 3) for k, v in weights.items()},
-            confidence=round(confidence, 3),
-            all_factors={**all_factors, "explanation": explanation},
+            confidence=confidence,
+            all_factors=all_factors,
         )
-
-        return result
 
     def compute_availability(
         self,
@@ -355,10 +430,7 @@ class PricingEngine:
         current = start
         while current <= end:
             date_str = current.strftime("%Y-%m-%d")
-            # Find matching calendar entry
-            entry = next(
-                (e for e in calendar_data if e.get("date") == date_str), None
-            )
+            entry = next((e for e in calendar_data if e.get("date") == date_str), None)
             result = self.compute_price(
                 property_uid=property_uid,
                 date=date_str,

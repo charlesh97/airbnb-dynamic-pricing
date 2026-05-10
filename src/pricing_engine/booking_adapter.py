@@ -56,7 +56,7 @@ def fetch_bookings_for_window(
         include_platforms: Optional list of platform types to keep.
                           None = all platforms.
         status_filter:  Optional list of booking statuses to keep.
-                        None = confirmed only ("confirmed").
+                        None = active reservations ("confirmed", "accepted").
 
     Returns:
         List of booking dicts with fields: checkin, checkout,
@@ -64,7 +64,8 @@ def fetch_bookings_for_window(
         platform_type, nights, gross_rental_price, guests.
     """
     if status_filter is None:
-        status_filter = ["confirmed"]
+        # iGMS commonly uses "accepted" for active reservations.
+        status_filter = ["confirmed", "accepted"]
 
     params: dict[str, Any] = {
         "property_uid": property_uid,
@@ -76,7 +77,7 @@ def fetch_bookings_for_window(
         response = client.get_bookings(page=1, **params)
     except Exception as exc:
         logger.warning("get_bookings failed for %s (%s–%s): %s", property_uid, from_date, to_date, exc)
-        return _stub_bookings(property_uid, from_date, to_date)
+        return []
 
     # Normalize paginated response to list
     pages = [response]
@@ -99,12 +100,20 @@ def fetch_bookings_for_window(
         bookings = response
     else:
         logger.warning("get_bookings returned unexpected type %s for %s", type(response), property_uid)
-        return _stub_bookings(property_uid, from_date, to_date)
+        return []
 
     # Normalize each record
     normalized = []
     for b in bookings:
         if not isinstance(b, dict):
+            continue
+
+        # Keep only the requested property. iGMS may return mixed properties
+        # even when property_uid is supplied in filters.
+        rec_property_uid = str(b.get("property_uid") or "").strip()
+        logger.debug("iGMS booking property_uid comparison: rec=%r requested=%r match=%s booking_id=%s",
+                     rec_property_uid, property_uid, rec_property_uid == property_uid, b.get("booking_id"))
+        if rec_property_uid and rec_property_uid != property_uid:
             continue
 
         # Normalize status
@@ -120,23 +129,63 @@ def fetch_bookings_for_window(
         if include_platforms is not None and platform and platform not in [p.lower() for p in include_platforms]:
             continue
 
+        customer = b.get("customer") if isinstance(b.get("customer"), dict) else {}
+        customer_first = str(
+            customer.get("first_name")
+            or customer.get("firstname")
+            or customer.get("given_name")
+            or ""
+        ).strip()
+        customer_last = str(
+            customer.get("last_name")
+            or customer.get("lastname")
+            or customer.get("family_name")
+            or ""
+        ).strip()
+        customer_full = str(
+            customer.get("name")
+            or customer.get("full_name")
+            or " ".join([customer_first, customer_last]).strip()
+            or ""
+        ).strip()
+
         normalized.append({
-            "booking_id":         b.get("booking_id", ""),
-            "property_uid":       b.get("property_uid", property_uid),
+            "booking_id":         b.get("booking_id") or b.get("id") or b.get("reservation_id") or "",
+            "property_uid":       rec_property_uid or property_uid,
             "listing_uid":        b.get("listing_uid", ""),
             "platform_type":      platform,
-            "checkin":            _ensure_date(b.get("checkin", "")),
-            "checkout":           _ensure_date(b.get("checkout", "")),
+            "checkin":            _ensure_date(
+                b.get("checkin")
+                or b.get("local_checkin_dttm")
+                or b.get("start_date")
+                or ""
+            ),
+            "checkout":           _ensure_date(
+                b.get("checkout")
+                or b.get("local_checkout_dttm")
+                or b.get("end_date")
+                or ""
+            ),
             "created_dttm":       _ensure_dt(b.get("created_dttm", "")),
             "booking_status":     status,
             "nights":             b.get("nights", 0),
             "gross_rental_price": b.get("gross_rental_price", 0.0),
             "guests":             b.get("guests", 0),
+            # Preserve guest/reservation identifiers for dashboard labeling.
+            "reservation_code":   b.get("reservation_code") or b.get("confirmation_code") or "",
+            "guest_name":         b.get("guest_name")
+                                  or b.get("guest_full_name")
+                                  or b.get("guest")
+                                  or customer_full
+                                  or "",
+            "guest_first_name":   b.get("guest_first_name") or customer_first,
+            "guest_last_name":    b.get("guest_last_name") or customer_last,
+            "customer":           customer,
         })
 
     if not normalized:
-        logger.info("No bookings found for %s in window %s–%s — using stub data", property_uid, from_date, to_date)
-        return _stub_bookings(property_uid, from_date, to_date)
+        logger.info("No bookings found for %s in window %s–%s", property_uid, from_date, to_date)
+        return []
 
     logger.info("Fetched %d bookings for %s (%s–%s)", len(normalized), property_uid, from_date, to_date)
     return normalized

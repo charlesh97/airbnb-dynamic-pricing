@@ -126,10 +126,10 @@ def _factor_contribution(base: float, multiplier: float) -> float:
 def cmd_debug_day(args: argparse.Namespace) -> None:
     """Print a detailed factor breakdown for a single day across all properties.
     
-    Shows price as a chain of adjustments from base rate:
-      base → seasonal → demand factors → event factors → yield → final
+    Shows price as a chain of stacked multipliers:
+      starting_price → occupancy_pacing → booking_velocity → final clamp
     """
-    from dashboard.engine_proxy import get_day_detail
+    from dashboard.engine_proxy import get_calendar_with_live_prices, get_day_detail
 
     _setup_logging(args.log_level)
     store = PropertyConfigStore()
@@ -139,6 +139,16 @@ def cmd_debug_day(args: argparse.Namespace) -> None:
         "645841896772032198",   # Freedom Place (VA)
     ]
 
+    def _fmt_money(value: float | None) -> str:
+        return "n/a" if value is None else f"${value:.2f}"
+
+    def _fmt_delta(delta: float | None) -> str:
+        if delta is None:
+            return "n/a"
+        if delta >= 0:
+            return f"+${delta:.2f}"
+        return f"-${abs(delta):.2f}"
+
     for uid in property_uids:
         prop = store.load(uid)
         if not prop:
@@ -147,86 +157,144 @@ def cmd_debug_day(args: argparse.Namespace) -> None:
 
         name = prop.get("name", uid)
         state = prop.get("state", "??")
+        target_dt = datetime.strptime(args.date, "%Y-%m-%d")
+        month_key = target_dt.strftime("%m")
+        dow_key = target_dt.strftime("%a").lower()
+
+        # Pull live iGMS price for this exact date so debug output can show deltas.
+        live_prices = get_calendar_with_live_prices(uid, args.date, args.date)
+        current_price = live_prices.get(args.date)
+
         console.print(f"\n{'='*56}")
         console.print(f"[bold cyan]{name}[/bold cyan]  |  {uid}  |  state={state}")
         console.print(f"[bold]Date: {args.date}[/bold]")
         console.print(f"{'='*56}")
 
-        detail = get_day_detail(uid, args.date, None)
-        base = detail["base_rate"]
-
-        # ── BASE ────────────────────────────────────────────────────────────
-        console.print(f"\n[bold white on blue]BASE[/bold white on blue]  ${base:.2f}")
-
-        # ── SEASONAL ────────────────────────────────────────────────────────
-        s = detail["seasonal"]
-        seasonal_mult = s["effective_seasonal"]
-        after_seasonal = base * seasonal_mult
-        rule_note = f"  [{s['rule']} rule]" if s['rule'] != 'none' else ""
-        console.print(f"[bold green]SEASONAL[/bold green]  {s['multiplier']:.3f} × ${base:.2f} = [green]${after_seasonal:.2f}[/green]{rule_note}")
-
-        # ── DEMAND ──────────────────────────────────────────────────────────
-        dm = detail["demand"]
-        current = after_seasonal
-        active_factors = []
-        for key in ["occupancy", "velocity", "far_future", "last_minute"]:
-            sub = dm.get(key, {})
-            active = sub.get("active", False)
-            if not active:
-                continue
-            discount = sub.get("discount", 1.0)
-            contrib = sub.get("contribution", "")
-            active_factors.append((key, discount, contrib))
-        
-        demand_mult = dm.get("multiplier", 1.0)
-        after_demand = current * demand_mult
-        if active_factors:
-            console.print(f"[bold yellow]DEMAND[/bold yellow]  {demand_mult:.3f} × ${current:.2f} = [yellow]${after_demand:.2f}[/yellow]")
-            for key, discount, contrib in active_factors:
-                console.print(f"           {key:<12} {discount:.3f}  {contrib}")
+        detail = get_day_detail(uid, args.date, None, None, current_price)
+        final_price = float(detail["final_price"])
+        confidence = float(detail["confidence"])
+        current = detail.get("current_airbnb_price")
+        if isinstance(current, (int, float)):
+            current = float(current)
         else:
-            console.print(f"[bold yellow]DEMAND[/bold yellow]  [dim]inactive (no bookings in window)[/dim]  →  [dim]${after_demand:.2f}[/dim]")
+            current = None
 
-        # ── EVENT ──────────────────────────────────────────────────────────
-        ev = detail["event"]
-        ev_factors = ev.get("factors", {})
-        local_evt = ev_factors.get("local_event", "1.0")
-        event_factor = ev_factors.get("event_factor", "1.0")
-        hp = detail.get("holiday_proximity")
-        current = after_demand
-        console.print(f"[bold magenta]EVENT[/bold magenta]   local={local_evt}  factor={event_factor}")
-        if hp:
-            console.print(f"           holiday      : {hp['near_holiday']} ({hp['days_away']} days away, buffer={hp['buffer_applied']})")
-        # Event strategy suggested_price is its independent recommendation
-        # Show the event price as a multiplier on current
-        ev_price = ev.get("suggested_price", current)
-        ev_mult = ev_price / current if current > 0 else 1.0
-        console.print(f"           → event price : ${ev_price:.2f}  (event mult on current: {ev_mult:.3f})")
+        raw_factors = detail.get("raw_factors", {})
+        explanation = raw_factors.get("explanation", {}) if isinstance(raw_factors, dict) else {}
+        demand_factors = raw_factors.get("demand", {}) if isinstance(raw_factors, dict) else {}
+        occ = demand_factors.get("occupancy_pacing", {}) if isinstance(demand_factors, dict) else {}
+        vel = demand_factors.get("booking_velocity", {}) if isinstance(demand_factors, dict) else {}
+        occ_inputs = occ.get("inputs", {}) if isinstance(occ, dict) else {}
+        occ_computed = occ.get("computed", {}) if isinstance(occ, dict) else {}
+        vel_inputs = vel.get("inputs", {}) if isinstance(vel, dict) else {}
+        vel_computed = vel.get("computed", {}) if isinstance(vel, dict) else {}
 
-        # ── YIELD ──────────────────────────────────────────────────────────
-        yt = detail["yield"]
-        yt_price = yt.get("suggested_price", current)
-        yt_mult = yt_price / ev_price if ev_price > 0 else 1.0
-        console.print(f"[bold blue]YIELD[/bold blue]      → ${yt_price:.2f}  (yield mult: {yt_mult:.3f})")
-        yt_factors = yt.get("factors", {})
-        for k, v in yt_factors.items():
-            if v is not None:
-                console.print(f"           {k:<20}: {v}")
+        def _fmt_pct_signed(v: float | None) -> str:
+            if v is None:
+                return "n/a"
+            sign = "+" if v >= 0 else "-"
+            return f"{sign}{abs(v) * 100:.1f}%"
 
-        # ── COMPETITOR ──────────────────────────────────────────────────────
-        co = detail["competitor"]
-        co_price = co.get("suggested_price")
-        co_note = co.get("note", "")
-        if co_price is not None:
-            console.print(f"[bold]COMPETITOR → ${co_price:.2f}[/bold]")
+        def _fmt_num(v: Any, ndigits: int = 3) -> str:
+            try:
+                return f"{float(v):.{ndigits}f}"
+            except Exception:
+                return "n/a"
+
+        # ── CONFIG SNAPSHOT ──────────────────────────────────────────────────
+        seasonal_cfg = prop.get("seasonal_months", {})
+        dow_cfg = prop.get("dow_multipliers", {})
+        console.print("\n[bold white on blue]CONFIG[/bold white on blue]")
+        console.print(
+            "base="
+            f"{_fmt_money(prop.get('base_price'))}  "
+            "min/max="
+            f"{_fmt_money(prop.get('min_price'))}/{_fmt_money(prop.get('max_price'))}  "
+            f"seasonal({month_key})={seasonal_cfg.get(month_key, 'default')}  "
+            f"dow({dow_key})={dow_cfg.get(dow_key, 1.0)}"
+        )
+
+        # ── CURRENT VS RECOMMENDED ───────────────────────────────────────────
+        console.print("\n[bold white on green]PRICE COMPARISON[/bold white on green]")
+        if current is not None:
+            console.print(
+                f"current iGMS={_fmt_money(current)}  "
+                f"recommended={_fmt_money(final_price)}  "
+                f"delta={_fmt_delta(final_price - current)}  "
+                f"confidence={confidence:.0%}"
+            )
         else:
-            console.print(f"[bold]COMPETITOR → [dim]skipped (no data)[/dim][/bold]")
-        if co_note:
-            console.print(f"           [dim]{co_note}[/dim]")
+            console.print(
+                f"current iGMS=n/a  recommended={_fmt_money(final_price)}  "
+                f"confidence={confidence:.0%}"
+            )
 
-        # ── FINAL ───────────────────────────────────────────────────────────
-        console.print(f"\n[bold white on green]FINAL PRICE[/bold white on green]  ${detail['final_price']:.2f}  "
-                      f"(confidence {detail['confidence']:.0%})")
+        console.print("\n[bold]STARTING PRICE[/bold]")
+        console.print(
+            f"  base_price={_fmt_money(explanation.get('base_price'))}  "
+            f"event_multiplier={_fmt_num(explanation.get('event_multiplier'))}  "
+            f"yield_multiplier={_fmt_num(explanation.get('yield_multiplier'))}  "
+            f"starting_price={_fmt_money(explanation.get('starting_price'))}"
+        )
+
+        console.print("\n[bold]OCCUPANCY PACING CALCULATION[/bold]")
+        console.print(
+            f"  enabled={occ_inputs.get('enabled', 'n/a')}  "
+            f"window_days={occ_inputs.get('window_days', 'n/a')}  "
+            f"booked_nights={occ_inputs.get('booked_nights', 'n/a')}  "
+            f"available_nights={occ_inputs.get('available_nights', 'n/a')}"
+        )
+        console.print(
+            f"  actual_occupancy={_fmt_pct_signed(occ_computed.get('actual_occupancy'))}  "
+            f"target_occupancy={_fmt_pct_signed(occ_inputs.get('target_occupancy'))}  "
+            f"delta={_fmt_pct_signed(occ_computed.get('delta'))}"
+        )
+        console.print(
+            f"  sensitivity={_fmt_num(occ_inputs.get('sensitivity'))}  "
+            f"raw_adjustment={_fmt_pct_signed(occ_computed.get('raw_adjustment'))}  "
+            f"capped_adjustment={_fmt_pct_signed(occ_computed.get('capped_adjustment'))}"
+        )
+        console.print(
+            f"  multiplier={_fmt_num(occ.get('multiplier'))}  "
+            f"price_after_occupancy={_fmt_money(explanation.get('price_after_occupancy'))}  "
+            f"reason={occ.get('reason', 'n/a')}"
+        )
+
+        console.print("\n[bold]BOOKING VELOCITY CALCULATION[/bold]")
+        console.print(
+            f"  enabled={vel_inputs.get('enabled', 'n/a')}  "
+            f"recent_window_days={vel_inputs.get('recent_window_days', 'n/a')}  "
+            f"recent_bookings={vel_inputs.get('recent_bookings', 'n/a')}  "
+            f"recent_bpd={_fmt_num(vel_computed.get('recent_bpd'))}"
+        )
+        console.print(
+            f"  baseline_window_days={vel_inputs.get('baseline_window_days', 'n/a')}  "
+            f"baseline_bookings={vel_inputs.get('baseline_bookings', 'n/a')}  "
+            f"baseline_bpd={_fmt_num(vel_computed.get('baseline_bpd'))}"
+        )
+        console.print(
+            f"  velocity_ratio={_fmt_num(vel_computed.get('velocity_ratio'), 2)}x  "
+            f"velocity_delta={_fmt_pct_signed(vel_computed.get('velocity_delta'))}  "
+            f"sensitivity={_fmt_num(vel_inputs.get('sensitivity'))}"
+        )
+        console.print(
+            f"  raw_adjustment={_fmt_pct_signed(vel_computed.get('raw_adjustment'))}  "
+            f"capped_adjustment={_fmt_pct_signed(vel_computed.get('capped_adjustment'))}  "
+            f"multiplier={_fmt_num(vel.get('multiplier'))}"
+        )
+        console.print(
+            f"  price_after_velocity={_fmt_money(explanation.get('price_after_velocity'))}  "
+            f"reason={vel.get('reason', 'n/a')}"
+        )
+
+        console.print("\n[bold]FINAL CLAMP[/bold]")
+        console.print(
+            f"  raw_adjusted_price={_fmt_money(explanation.get('raw_adjusted_price'))}  "
+            f"floor_price={_fmt_money(explanation.get('min_price'))}  "
+            f"ceiling_price={_fmt_money(explanation.get('max_price'))}  "
+            f"final_price={_fmt_money(explanation.get('final_price'))}"
+        )
+
         console.print()
 
 
@@ -241,16 +309,17 @@ def cmd_status(args: argparse.Namespace) -> None:
     from_date = datetime.now().strftime("%Y-%m-%d")
     to_date = (datetime.now() + timedelta(days=window)).strftime("%Y-%m-%d")
 
-    properties = client.get_all_properties()
-    if not properties:
-        console.print("[red]No properties found — check IGMS_ACCESS_TOKEN[/red]")
+    store = PropertyConfigStore()
+    uids = store.list_properties()
+    if not uids:
+        console.print("[red]No local property configs found in config/properties/[/red]")
         return
 
-    for prop in properties:
-        uid = prop.get("property_uid")
-        if not uid:
+    for uid in uids:
+        prop_config = store.load(uid)
+        if not prop_config:
             continue
-        name = prop.get("name", uid)
+        name = prop_config.get("name", uid)
         console.print(f"\n[bold cyan]{name}[/bold cyan] ({uid})")
 
         try:
@@ -311,13 +380,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     from_date = datetime.now().strftime("%Y-%m-%d")
     to_date = (datetime.now() + timedelta(days=config.pricing_window_days)).strftime("%Y-%m-%d")
 
-    properties = client.get_all_properties()
+    store = PropertyConfigStore()
+    uids = store.list_properties()
     results: dict[str, list[DatePrice]] = {}
 
-    for prop in properties:
-        uid = prop.get("property_uid")
-        if not uid:
+    for uid in uids:
+        prop_config = store.load(uid)
+        if not prop_config:
             continue
+        name = prop_config.get("name", uid)
         try:
             calendar = client.get_calendar(uid, from_date, to_date)
             bookings = _fetch_bookings_cached(client, uid, from_date, to_date)
@@ -329,7 +400,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 bookings_in_window=bookings,
                 config=config.__dict__,
             )
-            results[prop.get("name", uid)] = prices
+            results[name] = prices
         except Exception as e:
             console.print(f"[red]Error for {uid}: {e}[/red]")
 
@@ -351,13 +422,15 @@ def cmd_push(args: argparse.Namespace) -> None:
     from_date = datetime.now().strftime("%Y-%m-%d")
     to_date = (datetime.now() + timedelta(days=config.pricing_window_days)).strftime("%Y-%m-%d")
 
-    properties = client.get_all_properties()
+    store = PropertyConfigStore()
+    uids = store.list_properties()
 
-    for prop in properties:
-        uid = prop.get("property_uid")
-        if not uid:
+    for uid in uids:
+        prop_config = store.load(uid)
+        if not prop_config:
             continue
-        console.print(f"\n[bold]Pushing prices for {prop.get('name','?')}...[/bold]")
+        name = prop_config.get("name", uid)
+        console.print(f"\n[bold]Pushing prices for {name}...[/bold]")
         try:
             calendar = client.get_calendar(uid, from_date, to_date)
             calendar_entries = calendar.get("data", [])

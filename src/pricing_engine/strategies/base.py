@@ -47,14 +47,14 @@ class PricingStrategy(ABC):
 
         Supports three key formats:
           - base_prices[property_uid]      (per-property dict, env-config style)
-          - default_base_price            (global fallback in env config)
           - base_price                    (singular key in property JSON)
+          - default_base_price            (global fallback in env config)
         """
         base = config.get("base_prices", {}).get(property_uid)
         if base is None:
-            base = config.get("default_base_price")
-        if base is None:
             base = config.get("base_price")  # singular key in property JSON
+        if base is None:
+            base = config.get("default_base_price")
         return float(base if base is not None else 100.0)
 
     def _seasonal_base_price(
@@ -85,8 +85,17 @@ class PricingStrategy(ABC):
     ) -> tuple[float, float]:
         """Return (min_price, max_price) for a property."""
         props = config.get("property_overrides", {}).get(property_uid, {})
-        min_p = props.get("min_price", config.get("default_min_price", 50.0))
-        max_p = props.get("max_price", config.get("default_max_price", 1000.0))
+        min_p = props.get("min_price")
+        if min_p is None:
+            min_p = config.get("min_price")
+        if min_p is None:
+            min_p = config.get("default_min_price", 50.0)
+
+        max_p = props.get("max_price")
+        if max_p is None:
+            max_p = config.get("max_price")
+        if max_p is None:
+            max_p = config.get("default_max_price", 1000.0)
         return float(min_p), float(max_p)
 
     def _clamp(self, price: float, config: dict[str, Any], property_uid: str) -> float:

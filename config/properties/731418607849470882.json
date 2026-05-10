@@ -19,16 +19,16 @@
   "longitude": -120.444,
   "base_price": 250.0,
   "min_price": 100.0,
-  "max_price": 800.0,
+  "max_price": 400.0,
   "quality_score": 0.85,
   "strategy_weights": {
     "demand": 0.35,
     "event": 0.35,
-    "competitor": 0.00,
-    "yield": 0.30
+    "competitor": 0.0,
+    "yield": 0.3
   },
   "availability": {
-    "booking_window_days": 120,
+    "booking_window_days": 115,
     "min_stay": {
       "default": 2,
       "overrides": []
@@ -40,12 +40,21 @@
       "blocked": []
     },
     "block_day_before": false,
-    "block_day_after": false
+    "block_day_after": true,
+    "far_future": {
+      "window_days": 60,
+      "discount": 0.9
+    },
+    "last_minute": {
+      "window_days": 7,
+      "discount": 0.92,
+      "threshold_occupancy": 0.5
+    }
   },
   "demand_config": {
     "demand_window_days": 14,
     "velocity_window_days": 7,
-    "velocity_factor": 0.15,
+    "velocity_factor": 0.08,
     "occupancy_factor": 0.3,
     "far_future": {
       "window_days": 60,
@@ -59,27 +68,27 @@
   },
   "holiday_buffer_days": 3,
   "seasonal_base_prices": {
-    "winter_peak": 325.00,
-    "winter_shoulder": 275.00,
-    "spring_mud": 190.00,
-    "summer_peak": 285.00,
-    "fall_slow": 200.00,
-    "holiday": 450.00,
-    "fallback": 250.00
+    "winter_peak": 325.0,
+    "winter_shoulder": 275.0,
+    "spring_mud": 190.0,
+    "summer_peak": 285.0,
+    "fall_slow": 200.0,
+    "holiday": 450.0,
+    "fallback": 250.0
   },
   "seasonal_months": {
-    "01": 1.35,
-    "02": 1.30,
-    "03": 1.15,
-    "04": 0.80,
-    "05": 0.75,
-    "06": 1.00,
-    "07": 1.20,
-    "08": 1.15,
-    "09": 0.90,
-    "10": 0.80,
-    "11": 0.85,
-    "12": 1.40
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "01": 1.0,
+    "02": 1.0,
+    "03": 1.0,
+    "04": 1.0,
+    "05": 1.0,
+    "06": 1.0,
+    "07": 1.0,
+    "08": 1.0,
+    "09": 1.0
   },
   "dow_multipliers": {
     "mon": 1.0,
@@ -94,11 +103,11 @@
     {
       "name": "Soda Springs Ski Day",
       "date": "2026-05-15",
-      "factor": 1.10
+      "factor": 1.1
     }
   ],
   "local_events_config": {
-    "default_factor": 1.10
+    "default_factor": 1.1
   },
   "state": "CA",
   "holiday_buffer_slope": 0.05,
@@ -112,5 +121,28 @@
       "property_type": "cabin,home",
       "exclude_property_types": "hotel,condo,apartment"
     }
-  }
+  },
+  "price_adjust": 0,
+  "pricing_adjustments": {
+    "occupancy_pacing": {
+      "enabled": true,
+      "window_days": 14,
+      "target_occupancy": 0.25,
+      "sensitivity": 0.3,
+      "max_discount": 0.1,
+      "max_increase": 0.1,
+      "min_available_nights": 5
+    },
+    "booking_velocity": {
+      "enabled": true,
+      "recent_window_days": 7,
+      "baseline_window_days": 60,
+      "sensitivity": 0.08,
+      "max_discount": 0,
+      "max_increase": 0.15,
+      "min_recent_bookings": 2,
+      "min_baseline_bookings": 3
+    }
+  },
+  "config_schema_version": 2
 }

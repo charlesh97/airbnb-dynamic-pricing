@@ -1,170 +1,135 @@
-"""Tests for the pricing engine — weighted average, bounds, NaN checks."""
+"""Tests for the pricing engine stacked pricing pipeline."""
 
 import unittest
 import sys
-from datetime import datetime, timedelta
 
 sys.path.insert(0, "src")
 
-from pricing_engine.engine import PricingEngine, DatePrice
-from pricing_engine.strategies.base import PriceRecommendation
-
-
-class MockStrategy:
-    """Mock strategy that returns configurable prices."""
-
-    def __init__(self, name: str, price: float, confidence: float = 0.8):
-        self.name = name
-        self._price = price
-        self._confidence = confidence
-
-    def compute(self, **kwargs):
-        return PriceRecommendation(
-            strategy_name=self.name,
-            suggested_price=self._price,
-            confidence=self._confidence,
-            factors={},
-        )
+from pricing_engine.engine import PricingEngine
 
 
 class TestPricingEngine(unittest.TestCase):
-    def test_weighted_average_basic(self):
-        engine = PricingEngine()
-        # Replace strategies with predictable mocks
-        engine.strategies = [
-            MockStrategy("demand", 100.0),
-            MockStrategy("event", 200.0),
-            MockStrategy("yield", 150.0),
-            MockStrategy("competitor", 120.0),
-        ]
-        # Default weights: demand=0.40, event=0.30, competitor=0.20, yield=0.10
-        result = engine.compute_price(
-            property_uid="prop1",
-            date="2026-06-15",
-            calendar_entry=None,
-            bookings_in_window=[],
-            config={"default_base_price": 100.0},
-        )
-        # (100×0.40 + 200×0.30 + 120×0.20 + 150×0.10) / 1.0
-        # = 40 + 60 + 24 + 15 = 139
-        self.assertEqual(result.final_price, 139.0)
-        self.assertTrue(result.confidence > 0)
+    def setUp(self):
+        self.engine = PricingEngine()
+        self.base_config = {
+            "base_price": 250.0,
+            "default_base_price": 250.0,
+            "min_price": 100.0,
+            "max_price": 500.0,
+            "seasonal_months": {f"{m:02d}": 1.0 for m in range(1, 13)},
+            "dow_multipliers": {
+                "mon": 1.0,
+                "tue": 1.0,
+                "wed": 1.0,
+                "thu": 1.0,
+                "fri": 1.0,
+                "sat": 1.0,
+                "sun": 1.0,
+            },
+            "availability": {
+                "booking_window_days": 120,
+                "min_stay": {"default": 2, "overrides": []},
+                "checkin_days": {"blocked": []},
+                "checkout_days": {"blocked": []},
+                "block_day_before": False,
+                "block_day_after": False,
+                "far_future": {"window_days": 60, "discount": 1.0},
+                "last_minute": {"window_days": 7, "discount": 1.0, "threshold_occupancy": 1.0},
+            },
+            "pricing_adjustments": {
+                "occupancy_pacing": {
+                    "enabled": True,
+                    "window_days": 14,
+                    "target_occupancy": 0.25,
+                    "sensitivity": 0.2,
+                    "max_discount": 0.1,
+                    "max_increase": 0.1,
+                    "min_available_nights": 5,
+                },
+                "booking_velocity": {
+                    "enabled": True,
+                    "recent_window_days": 7,
+                    "baseline_window_days": 60,
+                    "sensitivity": 0.08,
+                    "max_discount": 0.0,
+                    "max_increase": 0.15,
+                    "min_recent_bookings": 2,
+                    "min_baseline_bookings": 3,
+                },
+            },
+            "external_market_data": {"enabled": False},
+        }
 
-    def test_weights_must_sum_to_one(self):
-        # Use real strategies but verify weighting works
-        engine = PricingEngine()
-        custom_weights = {"demand": 0.50, "event": 0.50}
-        result = engine.compute_price(
+    def test_compute_range_produces_count(self):
+        results = self.engine.compute_range(
             property_uid="prop1",
-            date="2026-06-15",
-            calendar_entry=None,
-            bookings_in_window=[],
-            config={"default_base_price": 100.0, "strategy_weights": custom_weights},
-        )
-        # demand × 0.50 + event × 0.50 should be the weighted result
-        # Both strategies respond to base_price 100; verify weights are applied
-        self.assertIn("demand", result.strategy_weights)
-        self.assertIn("event", result.strategy_weights)
-        self.assertEqual(result.strategy_weights["demand"], 0.5)
-        self.assertEqual(result.strategy_weights["event"], 0.5)
-        # Weighted result should be demand_output×0.5 + event_output×0.5
-        self.assertGreater(result.final_price, 0)
-
-    def test_price_clamped_to_max(self):
-        engine = PricingEngine()
-        engine.strategies = [MockStrategy("demand", 5000.0)]
-        engine._default_weights = {"demand": 1.0}
-        result = engine.compute_price(
-            property_uid="prop1",
-            date="2026-06-15",
-            calendar_entry=None,
-            bookings_in_window=[],
-            config={"default_max_price": 1000.0},
-        )
-        self.assertEqual(result.final_price, 1000.0)
-
-    def test_price_clamped_to_min(self):
-        engine = PricingEngine()
-        engine.strategies = [MockStrategy("demand", 10.0)]
-        engine._default_weights = {"demand": 1.0}
-        result = engine.compute_price(
-            property_uid="prop1",
-            date="2026-06-15",
-            calendar_entry=None,
-            bookings_in_window=[],
-            config={"default_min_price": 50.0},
-        )
-        self.assertEqual(result.final_price, 50.0)
-
-    def test_no_negative_prices(self):
-        engine = PricingEngine()
-        engine.strategies = [MockStrategy("demand", -50.0)]
-        engine._default_weights = {"demand": 1.0}
-        result = engine.compute_price(
-            property_uid="prop1",
-            date="2026-06-15",
-            calendar_entry=None,
-            bookings_in_window=[],
-            config={"default_min_price": 0.0},
-        )
-        # Clamped to min 0
-        self.assertGreaterEqual(result.final_price, 0.0)
-
-    def test_compute_range_produces_correct_count(self):
-        engine = PricingEngine()
-        from_date = "2026-06-01"
-        to_date = "2026-06-07"
-        results = engine.compute_range(
-            property_uid="prop1",
-            from_date=from_date,
-            to_date=to_date,
+            from_date="2026-06-01",
+            to_date="2026-06-07",
             calendar_data=[],
             bookings_in_window=[],
-            config={},
+            config=self.base_config,
         )
         self.assertEqual(len(results), 7)
 
-    def test_strategy_prices_documented(self):
-        engine = PricingEngine()
-        result = engine.compute_price(
+    def test_price_clamped_to_max(self):
+        cfg = {**self.base_config, "max_price": 120.0}
+        result = self.engine.compute_price(
             property_uid="prop1",
             date="2026-06-15",
             calendar_entry=None,
             bookings_in_window=[],
-            config={},
+            config=cfg,
         )
-        self.assertIsInstance(result.strategy_prices, dict)
-        self.assertIsInstance(result.strategy_weights, dict)
-        self.assertIsInstance(result.confidence, float)
-        self.assertGreaterEqual(result.confidence, 0.0)
-        self.assertLessEqual(result.confidence, 1.0)
+        self.assertLessEqual(result.final_price, 120.0)
 
+    def test_price_clamped_to_min(self):
+        cfg = {**self.base_config, "min_price": 260.0}
+        result = self.engine.compute_price(
+            property_uid="prop1",
+            date="2026-06-15",
+            calendar_entry=None,
+            bookings_in_window=[],
+            config=cfg,
+        )
+        self.assertGreaterEqual(result.final_price, 260.0)
 
-class TestNormalizeWeights(unittest.TestCase):
-    def test_empty_weights(self):
-        engine = PricingEngine()
-        result = engine._normalize_weights({})
-        self.assertEqual(result, {})
+    def test_occupancy_above_target_increases(self):
+        bookings = [
+            {"checkin": "2026-06-01", "checkout": "2026-06-09", "created_dttm": "2026-05-28"},
+        ]
+        result = self.engine.compute_price(
+            property_uid="prop1",
+            date="2026-06-15",
+            calendar_entry=None,
+            bookings_in_window=bookings,
+            config=self.base_config,
+        )
+        demand = result.all_factors.get("demand", {})
+        occ = demand.get("occupancy_pacing", {})
+        self.assertGreater(occ.get("multiplier", 1.0), 1.0)
 
-    def test_already_sums_to_one(self):
-        engine = PricingEngine()
-        result = engine._normalize_weights({"demand": 0.4, "event": 0.3, "competitor": 0.2, "yield": 0.1})
-        self.assertEqual(result, {"demand": 0.4, "event": 0.3, "competitor": 0.2, "yield": 0.1})
-
-    def test_zero_total_returns_unchanged(self):
-        engine = PricingEngine()
-        result = engine._normalize_weights({"demand": 0.0, "event": 0.0})
-        self.assertEqual(result, {"demand": 0.0, "event": 0.0})
-
-    def test_partial_weights_normalized(self):
-        engine = PricingEngine()
-        result = engine._normalize_weights({"demand": 0.5, "event": 0.5})
-        self.assertAlmostEqual(sum(result.values()), 1.0)
-
-    def test_single_strategy(self):
-        engine = PricingEngine()
-        result = engine._normalize_weights({"demand": 1.0})
-        self.assertEqual(result, {"demand": 1.0})
+    def test_no_legacy_factor_math_in_active_path(self):
+        cfg = {
+            **self.base_config,
+            "demand_config": {
+                "occupancy_factor": 0.99,
+                "velocity_factor": 0.99,
+                "demand_window_days": 14,
+                "velocity_window_days": 7,
+            },
+        }
+        result = self.engine.compute_price(
+            property_uid="prop1",
+            date="2026-06-15",
+            calendar_entry=None,
+            bookings_in_window=[],
+            config=cfg,
+        )
+        demand = result.all_factors.get("demand", {})
+        occ_inputs = demand.get("occupancy_pacing", {}).get("inputs", {})
+        vel_inputs = demand.get("booking_velocity", {}).get("inputs", {})
+        self.assertNotEqual(occ_inputs.get("sensitivity"), 0.99)
+        self.assertNotEqual(vel_inputs.get("sensitivity"), 0.99)
 
 
 if __name__ == "__main__":

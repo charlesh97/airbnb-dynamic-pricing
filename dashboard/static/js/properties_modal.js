@@ -127,9 +127,19 @@ async function addSelectedProperties() {
     const updated = await api.get("/api/properties");
     const switcher = document.getElementById("property-switcher");
     if (switcher && updated) {
+      const current = localStorage.getItem("atlas_property_uid") || switcher.value;
       switcher.innerHTML = updated.map(p =>
         `<option value="${p.property_uid}">${p.name}</option>`
       ).join("");
+
+      const hasCurrent = updated.some(p => p.property_uid === current);
+      if (hasCurrent) {
+        switcher.value = current;
+        localStorage.setItem("atlas_property_uid", current);
+      } else if (updated.length > 0) {
+        switcher.value = updated[0].property_uid;
+        localStorage.setItem("atlas_property_uid", updated[0].property_uid);
+      }
     }
   } catch (e) {
     console.error("Failed to refresh property list:", e);

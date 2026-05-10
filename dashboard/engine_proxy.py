@@ -23,6 +23,7 @@ from pricing_engine.config_store import PropertyConfigStore
 from pricing_engine.config import EngineConfig
 from pricing_engine.client import PricingClient
 from pricing_engine.booking_adapter import fetch_bookings_for_window as _adapter_fetch
+from pricing_engine.strategies.demand import get_pricing_adjustments_config
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,21 @@ def get_calendar_with_live_prices(
 
 _ENGINE = PricingEngine()
 _CONFIG_STORE = PropertyConfigStore()
+_BOOKINGS_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def clear_bookings_cache(property_uid: str | None = None) -> None:
+    """Clear cached booking payloads.
+
+    If property_uid is provided, clears only that property cache entry.
+    Otherwise clears the full cache.
+    """
+    if property_uid:
+        _BOOKINGS_CACHE.pop(str(property_uid), None)
+        logger.info("bookings cache invalidated property_uid=%s", property_uid)
+        return
+    _BOOKINGS_CACHE.clear()
+    logger.info("bookings cache invalidated all properties")
 
 
 def compute_month(
@@ -216,6 +232,7 @@ def _fetch_bookings_for_window(
     property_uid: str,
     from_date: str,
     to_date: str,
+    force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """Fetch accepted bookings from iGMS for a property and date window.
 
@@ -223,14 +240,86 @@ def _fetch_bookings_for_window(
     property-filtered booking ingestion.
     """
     try:
+        requested_from = datetime.strptime(from_date, "%Y-%m-%d")
+        requested_to = datetime.strptime(to_date, "%Y-%m-%d")
+    except ValueError:
+        requested_from = datetime.now()
+        requested_to = datetime.now()
+
+    # Velocity needs booking creation activity across the configured booking window,
+    # not only the visible month range. We widen the stay-date fetch window so recent
+    # bookings for later stays are available for created_dttm counting.
+    env_cfg = EngineConfig.from_env(_REPO_ROOT / ".env")
+    merged = _CONFIG_STORE.merge_with_env_defaults(property_uid, env_cfg.__dict__)
+    availability_cfg = merged.get("availability", {}) or {}
+    booking_window_days = int(availability_cfg.get("booking_window_days", 120) or 120)
+    booking_window_days = max(1, booking_window_days)
+
+    adjustments_cfg = get_pricing_adjustments_config(merged)
+    occ_window_days = int(adjustments_cfg.get("occupancy_pacing", {}).get("window_days", 14) or 14)
+    last_minute_cfg = availability_cfg.get("last_minute", {}) or {}
+    if not last_minute_cfg:
+        last_minute_cfg = (merged.get("demand_config", {}) or {}).get("last_minute", {}) or {}
+    last_minute_window_days = int(last_minute_cfg.get("window_days", 7) or 7)
+    lookback_days = max(occ_window_days, last_minute_window_days, 14)
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    booking_window_end = today + timedelta(days=booking_window_days)
+    widened_from_dt = min(requested_from, today - timedelta(days=lookback_days))
+    widened_to_dt = max(requested_to, booking_window_end)
+    widened_from = widened_from_dt.strftime("%Y-%m-%d")
+    widened_to = widened_to_dt.strftime("%Y-%m-%d")
+
+    try:
         client = _get_pricing_client()
-        bookings = _adapter_fetch(client, property_uid, from_date, to_date)
-        logger.info("bookings fetch property_uid=%s window=%s–%s count=%d source=booking_adapter",
-                     property_uid, from_date, to_date, len(bookings))
+        cache_key = str(property_uid)
+        cache_entry = _BOOKINGS_CACHE.get(cache_key)
+        if not force_refresh and cache_entry:
+            cached_from = str(cache_entry.get("from_date", ""))
+            cached_to = str(cache_entry.get("to_date", ""))
+            if cached_from and cached_to and cached_from <= widened_from and cached_to >= widened_to:
+                cached_rows = cache_entry.get("bookings", []) or []
+                logger.info(
+                    "bookings cache hit property_uid=%s requested=%s–%s widened=%s–%s cached=%s–%s count=%d",
+                    property_uid,
+                    from_date,
+                    to_date,
+                    widened_from,
+                    widened_to,
+                    cached_from,
+                    cached_to,
+                    len(cached_rows),
+                )
+                return cached_rows
+
+        bookings = _adapter_fetch(client, property_uid, widened_from, widened_to)
+        _BOOKINGS_CACHE[cache_key] = {
+            "from_date": widened_from,
+            "to_date": widened_to,
+            "bookings": bookings or [],
+            "cached_at": datetime.now().isoformat(),
+        }
+        logger.info(
+            "bookings fetch property_uid=%s requested=%s–%s widened=%s–%s "
+            "booking_window_days=%d lookback_days=%d count=%d source=booking_adapter force_refresh=%s",
+            property_uid,
+            from_date,
+            to_date,
+            widened_from,
+            widened_to,
+            booking_window_days,
+            lookback_days,
+            len(bookings),
+            force_refresh,
+        )
         return bookings or []
     except Exception:
-        logger.exception("bookings fetch failed property_uid=%s window=%s–%s",
-                         property_uid, from_date, to_date)
+        logger.exception(
+            "bookings fetch failed property_uid=%s requested_window=%s–%s",
+            property_uid,
+            from_date,
+            to_date,
+        )
         return []
 
 
@@ -292,117 +381,6 @@ def save_property_config(property_uid: str, config: dict[str, Any]) -> None:
 
 
 # ── Properties list ────────────────────────────────────────────────────────────
-
-def _normalize_igms_properties(raw: Any) -> list[dict[str, Any]]:
-    """Normalize iGMS properties response to a list of dicts."""
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return [r for r in raw if isinstance(r, dict)]
-    if isinstance(raw, dict):
-        data = raw.get("data")
-        if isinstance(data, list):
-            return [r for r in data if isinstance(r, dict)]
-    return []
-
-
-def _build_default_property_config(
-    property_uid: str,
-    name: str,
-    state: str,
-    igms_property: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Create a minimal config for a new property discovered from iGMS."""
-    env_cfg = EngineConfig.from_env(_REPO_ROOT / ".env")
-    igms_property = igms_property or {}
-
-    listings = igms_property.get("listings")
-    listing_uids = listings if isinstance(listings, list) else []
-    location = igms_property.get("location") or {}
-    lat = igms_property.get("latitude", location.get("lat", 0)) or 0
-    lng = igms_property.get("longitude", location.get("lng", 0)) or 0
-
-    return {
-        "property_uid": property_uid,
-        "name": name,
-        "platforms": ["airbnb"],
-        "listing_uids": listing_uids,
-        "bedrooms": int(igms_property.get("bedrooms") or 0),
-        "bathrooms": float(igms_property.get("bathrooms") or 0),
-        "beds": int(igms_property.get("beds") or 0),
-        "sleeps": int(igms_property.get("persons") or igms_property.get("sleeps") or 0),
-        "latitude": float(lat),
-        "longitude": float(lng),
-        "base_price": env_cfg.default_base_price,
-        "min_price": env_cfg.default_min_price,
-        "max_price": env_cfg.default_max_price,
-        "quality_score": env_cfg.default_quality_score,
-        "strategy_weights": env_cfg.default_strategy_weights,
-        "availability": {
-            "booking_window_days": 120,
-            "min_stay": {"default": 2, "overrides": []},
-            "checkin_days": {"blocked": []},
-            "checkout_days": {"blocked": []},
-            "block_day_before": False,
-            "block_day_after": False,
-        },
-        "seasonal_months": {f"{m:02d}": 1.0 for m in range(1, 13)},
-        "dow_multipliers": {
-            "mon": 1.0, "tue": 1.0, "wed": 1.0, "thu": 1.0, "fri": 1.1, "sat": 1.1, "sun": 1.0,
-        },
-        "local_events": [],
-        "local_events_config": {},
-        "demand_config": {
-            "demand_window_days": 14,
-            "velocity_window_days": 7,
-            "velocity_factor": 0.15,
-            "occupancy_factor": 0.3,
-            "far_future": {"window_days": 60, "discount": 0.9},
-            "last_minute": {"window_days": 7, "discount": 0.92},
-        },
-        "holiday_buffer_days": 3,
-        "state": state or "CA",
-        "holiday_buffer_slope": 0.05,
-    }
-
-
-def _upsert_discovered_property_config(igms_property: dict[str, Any]) -> dict[str, Any] | None:
-    """Ensure a property config exists for a discovered iGMS property."""
-    property_uid = str(igms_property.get("property_uid") or "").strip()
-    if not property_uid:
-        return None
-
-    name = str(igms_property.get("name") or f"Property {property_uid}").strip()
-    location = igms_property.get("location") or {}
-    state = str(igms_property.get("state") or location.get("state") or "CA").strip() or "CA"
-
-    existing = _CONFIG_STORE.load(property_uid)
-    if not existing:
-        created = _build_default_property_config(property_uid, name, state, igms_property)
-        _CONFIG_STORE.save(property_uid, created)
-        logger.info("Created missing property config for discovered property_uid=%s name=%s", property_uid, name)
-        return created
-
-    changed = False
-    if existing.get("property_uid") != property_uid:
-        existing["property_uid"] = property_uid
-        changed = True
-    if name and existing.get("name") != name:
-        existing["name"] = name
-        changed = True
-    if state and existing.get("state") != state:
-        existing["state"] = state
-        changed = True
-    if isinstance(igms_property.get("listings"), list) and existing.get("listing_uids") in (None, [], {}):
-        existing["listing_uids"] = igms_property.get("listings")
-        changed = True
-
-    if changed:
-        _CONFIG_STORE.save(property_uid, existing)
-        logger.info("Updated property config metadata for property_uid=%s", property_uid)
-    return existing
-
-
 def get_properties() -> list[dict]:
     """Return all locally-managed properties as {property_uid, name, state}.
 
@@ -499,73 +477,94 @@ def _date_price_to_dict(
 
 
 def _build_adjustment_ladder(af: dict, base_price: float) -> list[dict]:
-    """Build adjustment ladder from all_factors dict.
+    """Build adjustment ladder from stack-based explanation values."""
+    ladder: list[dict] = []
+    ex = af.get("explanation", {}) or {}
+    ev = af.get("event", {}) or {}
+    dm = af.get("demand", {}) or {}
+    yt = af.get("yield", {}) or {}
+    co = af.get("competitor", {}) or {}
 
-    Each entry: {key, label, amount (signed delta), running_total_after}
-    Ordered as applied: seasonality → dow → demand → yield → competitor.
-    """
-    ladder = []
-    running = base_price
+    running = float(ex.get("base_price", base_price))
+    event_mult = float(ex.get("event_multiplier", ev.get("event_multiplier", 1.0)))
+    occ_mult = float(ex.get("occupancy_multiplier", dm.get("occupancy_multiplier", 1.0)))
+    vel_mult = float(ex.get("velocity_multiplier", dm.get("velocity_multiplier", 1.0)))
+    comp_mult = float(ex.get("competitor_multiplier", co.get("multiplier", 1.0)))
+    price_adjust = float(ex.get("price_adjust", 0.0))
 
-    ev = af.get("event", {})
-    dm = af.get("demand", {})
-    yt = af.get("yield", {})
-    co = af.get("competitor", {})
+    # Event decomposition
+    seasonal_base_mult = float(ev.get("seasonal_base_multiplier", event_mult))
+    holiday_mult = float(ev.get("holiday_component_multiplier", 1.0))
+    far_future_mult = float(ev.get("far_future_multiplier", 1.0))
+    dow_mult = float(ev.get("dow_multiplier", 1.0))
 
-    seasonal_mult = ev.get("seasonal_multiplier", 1.0)
-    seasonal_amt = (seasonal_mult - 1.0) * base_price
-    if abs(seasonal_amt) >= 0.01:
-        running += seasonal_amt
-        ladder.append({
-            "key": "seasonality",
-            "label": "Seasonality",
-            "amount": round(seasonal_amt, 2),
-            "running_total_after": round(running, 2),
-        })
+    last_minute_mult = float(yt.get("last_minute_adjustment", 1.0))
+    if abs(last_minute_mult) < 1e-9:
+        last_minute_mult = 1.0
+    competitor_enabled = bool(co.get("enabled", False))
 
-    dow_mult = ev.get("dow_multiplier", 1.0)
-    dow_amt = (dow_mult - 1.0) * base_price
-    if abs(dow_amt) >= 0.01:
-        running += dow_amt
-        ladder.append({
-            "key": "dow",
-            "label": "Day-of-week",
-            "amount": round(dow_amt, 2),
-            "running_total_after": round(running, 2),
-        })
+    def _add_multiplier_row(key: str, label: str, multiplier: float) -> None:
+        nonlocal running
+        amount = running * (multiplier - 1.0)
+        running += amount
+        ladder.append(
+            {
+                "key": key,
+                "label": label,
+                "amount": round(amount, 2),
+                "running_total_after": round(running, 2),
+            }
+        )
 
-    demand_mult = dm.get("demand_multiplier", 1.0)
-    demand_amt = (demand_mult - 1.0) * base_price
-    if abs(demand_amt) >= 0.01:
-        running += demand_amt
-        ladder.append({
-            "key": "demand",
-            "label": "Demand",
-            "amount": round(demand_amt, 2),
-            "running_total_after": round(running, 2),
-        })
+    _add_multiplier_row("seasonality", "Seasonality", seasonal_base_mult)
 
-    yt_mult = yt.get("final_multiplier", yt.get("lead_factor", 1.0))
-    yield_amt = (yt_mult - 1.0) * base_price
-    if abs(yield_amt) >= 0.01:
-        running += yield_amt
-        ladder.append({
-            "key": "yield",
-            "label": "Yield",
-            "amount": round(yield_amt, 2),
-            "running_total_after": round(running, 2),
-        })
+    holiday_label = "Holiday"
+    if ev.get("is_holiday_period"):
+        holiday_name = ev.get("holiday_name") or "Holiday"
+        if ev.get("holiday_buffer_applied"):
+            slope = float(ev.get("holiday_buffer_slope", 0.0))
+            offset = int(ev.get("holiday_buffer_day_offset", 0))
+            holiday_label = f"{holiday_name} Buffer (day {offset}, slope {slope:.2f})"
+        else:
+            holiday_label = f"{holiday_name}"
+    _add_multiplier_row("holiday", holiday_label, holiday_mult)
 
-    co_mult = 1.0 if co.get("status") == "disabled" else co.get("adjustment_factor", 1.0)
-    competitor_amt = (co_mult - 1.0) * base_price
-    if abs(competitor_amt) >= 0.01:
+    _add_multiplier_row("far_future", "Far Future", far_future_mult)
+    _add_multiplier_row("day_of_week", "Day of Week", dow_mult)
+
+    # Last-minute is an explicit user-facing line item.
+    _add_multiplier_row("last_minute", "Last Minute", last_minute_mult)
+
+    _add_multiplier_row("occupancy_pacing", "Occupancy Pacing", occ_mult)
+    _add_multiplier_row("booking_velocity", "Booking Velocity", vel_mult)
+
+    competitor_amt = running * (comp_mult - 1.0)
+    if competitor_enabled or abs(competitor_amt) >= 0.01:
         running += competitor_amt
-        ladder.append({
-            "key": "competitor",
-            "label": "Competitor",
-            "amount": round(competitor_amt, 2),
-            "running_total_after": round(running, 2),
-        })
+        competitor_label = "Competitor"
+        status = str(co.get("status", "") or "")
+        if competitor_enabled and status == "no_data":
+            competitor_label = "Competitor (No Data)"
+        ladder.append(
+            {
+                "key": "competitor",
+                "label": competitor_label,
+                "amount": round(competitor_amt, 2),
+                "running_total_after": round(running, 2),
+            }
+        )
+
+    adjust_amt = running * price_adjust
+    if abs(adjust_amt) >= 0.01:
+        running += adjust_amt
+        ladder.append(
+            {
+                "key": "price_adjust",
+                "label": "Global Price Adjust",
+                "amount": round(adjust_amt, 2),
+                "running_total_after": round(running, 2),
+            }
+        )
 
     return ladder
 
@@ -598,6 +597,7 @@ def _date_price_to_detail(
         match = None
 
     af = dp.all_factors
+    af_no_yield = {k: v for k, v in af.items() if k != "yield"}
 
     # --- seasonal (from event strategy factors) ---
     ev = af.get("event", {})
@@ -608,20 +608,37 @@ def _date_price_to_detail(
     )
     seasonal_detail = ev.get("local_event_applied") or ""
 
-    # --- demand ---
-    dm = af.get("demand", {})
+    # --- demand debug ---
+    dm = af.get("demand", {}) or {}
+    occ_dbg = dm.get("occupancy_pacing", {}) or {}
+    vel_dbg = dm.get("booking_velocity", {}) or {}
 
-    # --- strategy weights (from Frosty Pines config) ---
+    # --- strategy weights (compat output only) ---
     weights = dp.strategy_weights
 
     # booking window days from availability config
     avail_cfg = config.get("availability", {})
     bwd = avail_cfg.get("booking_window_days", 120)
 
-    base_price_val = config.get("base_price", 200.0)
+    ex = af.get("explanation", {}) or {}
+    base_price_val = float(ex.get("base_price", config.get("base_price", 200.0)))
+    starting_price = float(ex.get("starting_price", base_price_val))
+    price_after_occupancy = float(ex.get("price_after_occupancy", starting_price))
+    price_after_velocity = float(ex.get("price_after_velocity", price_after_occupancy))
+    raw_adjusted_price = float(ex.get("raw_adjusted_price", dp.final_price))
+    min_price_bound = float(ex.get("min_price", dp.final_price))
+    max_price_bound = float(ex.get("max_price", dp.final_price))
     ladder = _build_adjustment_ladder(af, base_price_val)
-    subtotal_before_blend = ladder[-1]["running_total_after"] if ladder else base_price_val
-    blend_adjustment_amount = round(dp.final_price - subtotal_before_blend, 2)
+    blend_adjustment_amount = round(dp.final_price - raw_adjusted_price, 2)
+    was_price_capped = abs(blend_adjustment_amount) >= 0.01
+    cap_type = None
+    if was_price_capped:
+        if raw_adjusted_price > max_price_bound and abs(dp.final_price - max_price_bound) < 0.01:
+            cap_type = "max"
+        elif raw_adjusted_price < min_price_bound and abs(dp.final_price - min_price_bound) < 0.01:
+            cap_type = "min"
+        else:
+            cap_type = "unknown"
 
     is_booking_window_closed = getattr(avail, "blocked_reason", None) == "booking_window_closed"
     has_live_price = current is not None and current > 0
@@ -652,31 +669,25 @@ def _date_price_to_detail(
             "raw_seasonal_multiplier": ev.get("seasonal_multiplier", 1.0),
             "effective_seasonal": round(seasonal_mult * dow_mult, 3),
         },
+        "starting_price": round(starting_price, 2),
         "demand": {
             "multiplier": dm.get("demand_multiplier", 1.0),
-            "occupancy": {
-                "value": dm.get("occupancy_rate", 0.0),
-                "window_days": config.get("demand_config", {}).get("demand_window_days", 14),
-                "factor": config.get("demand_config", {}).get("occupancy_factor", 0.3),
-                "contribution": f"Occupancy {dm.get('occupancy_rate', 0):.0%}",
+            "occupancy_pacing": {
+                "multiplier": occ_dbg.get("multiplier", 1.0),
+                "reason": occ_dbg.get("reason", "n/a"),
+                "inputs": occ_dbg.get("inputs", {}),
+                "computed": occ_dbg.get("computed", {}),
+                "price_after": round(price_after_occupancy, 2),
             },
-            "velocity": {
-                "value": dm.get("bookings_per_day", 0.0),
-                "window_days": config.get("demand_config", {}).get("velocity_window_days", 7),
-                "factor": config.get("demand_config", {}).get("velocity_factor", 0.15),
-                "contribution": f"Velocity {dm.get('bookings_per_day', 0):.2f}/day",
+            "booking_velocity": {
+                "multiplier": vel_dbg.get("multiplier", 1.0),
+                "reason": vel_dbg.get("reason", "n/a"),
+                "inputs": vel_dbg.get("inputs", {}),
+                "computed": vel_dbg.get("computed", {}),
+                "price_after": round(price_after_velocity, 2),
             },
-            "far_future": {
-                "discount": config.get("demand_config", {}).get("far_future", {}).get("discount", 0.9),
-                "window_days": config.get("demand_config", {}).get("far_future", {}).get("window_days", 60),
-                "active": dm.get("far_future_discount_applied", False),
-            },
-            "last_minute": {
-                "discount": config.get("demand_config", {}).get("last_minute", {}).get("discount", 0.92),
-                "window_days": config.get("demand_config", {}).get("last_minute", {}).get("window_days", 7),
-                "threshold_occupancy": config.get("demand_config", {}).get("last_minute", {}).get("threshold_occupancy", 0.5),
-                "active": dm.get("last_minute_applied", False),
-            },
+            "price_after_occupancy": round(price_after_occupancy, 2),
+            "price_after_velocity": round(price_after_velocity, 2),
         },
         "event": {
             "suggested_price": dp.strategy_prices.get("event"),
@@ -684,13 +695,6 @@ def _date_price_to_detail(
                 "local_event": ev.get("local_event_applied"),
                 "event_factor": ev.get("local_event_applied"),
                 "holiday_proximity": ev.get("holiday_proximity"),
-            },
-        },
-        "yield": {
-            "suggested_price": dp.strategy_prices.get("yield"),
-            "factors": {
-                "yield_score": af.get("yield", {}).get("yield_score", None),
-                "recent_booking_value": af.get("yield", {}).get("recent_bookings_avg", None),
             },
         },
         "competitor": {
@@ -702,13 +706,17 @@ def _date_price_to_detail(
             "demand": weights.get("demand", 0),
             "event": weights.get("event", 0),
             "competitor": weights.get("competitor", 0),
-            "yield": weights.get("yield", 0),
         },
-        "strategy_prices": dp.strategy_prices,
-        "raw_factors": af,
+        "strategy_prices": {k: v for k, v in dp.strategy_prices.items() if k != "yield"},
+        "raw_factors": af_no_yield,
         "adjustment_ladder": ladder,
-        "subtotal_before_blend": round(subtotal_before_blend, 2),
+        "subtotal_before_blend": round(raw_adjusted_price, 2),
         "blend_adjustment_amount": blend_adjustment_amount,
+        "was_price_capped": was_price_capped,
+        "cap_type": cap_type,
+        "min_price_bound": round(min_price_bound, 2),
+        "max_price_bound": round(max_price_bound, 2),
+        "raw_adjusted_price": round(raw_adjusted_price, 2),
         "final_recommended": dp.final_price,
         "current_igms_price": current,
         "live_price_status": live_price_status,

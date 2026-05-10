@@ -5,6 +5,18 @@ import { api } from "./api.js";
 const DEFAULT_PROPERTY = "731418607849470882";
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW_KEYS = ["mon","tue","wed","thu","fri","sat","sun"];
+const CONFIG_SCHEMA_VERSION_CANONICAL = 2;
+const LEGACY_WRITE_UNTIL_VERSION = 2;
+const LEGACY_YIELD_ONLY_KEYS = [
+  "advance_lead_factor",
+  "mid_lead_factor",
+  "short_lead_factor",
+  "last_minute_lead_factor",
+  "base_churn_probability",
+  "opportunity_threshold_nights",
+  "low_opportunity_factor",
+  "high_opportunity_factor",
+];
 
 // Format a multiplier decimal as a signed percentage string
 // e.g., 1.05 → "+5%", 0.95 → "-5%", 1.0 → "±0%"
@@ -42,11 +54,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   document.getElementById("save-config-btn")?.addEventListener("click", saveConfig);
-  document.getElementById("renorm-btn")?.addEventListener("click", renormalizeWeights);
   document.getElementById("add-event-btn")?.addEventListener("click", addEventRow);
-
-  const renormBtn = document.getElementById("renorm-btn");
-  if (renormBtn) renormBtn.style.display = "none";
+  document.getElementById("occ-explain-btn")?.addEventListener("click", () => explainAdjustment("occupancy"));
+  document.getElementById("vel-explain-btn")?.addEventListener("click", () => explainAdjustment("velocity"));
+  document.getElementById("comp-enabled")?.addEventListener("change", () => {
+    updateCompetitorPill();
+    markDirty();
+  });
 
   // Preset buttons
   document.querySelectorAll(".preset-btn").forEach(btn => {
@@ -83,38 +97,74 @@ function populateAllFields(cfg) {
   setVal("min_price", cfg.min_price ?? 100);
   setVal("max_price", cfg.max_price ?? 800);
 
-  // Strategy weights
-  const sw = cfg.strategy_weights || {};
-  setVal("wt-demand", sw.demand ?? 0.5);
-  setVal("wt-event", sw.event ?? 0.375);
-  setVal("wt-competitor", sw.competitor ?? 0);
-  setVal("wt-yield", sw.yield ?? 0.125);
-  updateWeightDisplay();
-
   // DOW multipliers
   const dow = cfg.dow_multipliers || {};
   DOW_KEYS.forEach(k => {
     setVal("dow-" + k, Math.round((dow[k] - 1) * 100));
   });
 
-  // Demand config
+  // Pricing adjustments (canonical + legacy fallback)
+  const paCfg = cfg.pricing_adjustments || {};
   const dc = cfg.demand_config || {};
-  setVal("demand_window_days", dc.demand_window_days ?? 14);
-  setVal("velocity_window_days", dc.velocity_window_days ?? 7);
-  // Far Future label simplified
-  const ff = dc.far_future || {};
-  setVal("ff-window", ff.window_days ?? 60);
-  setVal("ff-discount", ff.discount ?? 0.9);
-  const lm = dc.last_minute || {};
-  setVal("lm-window", lm.window_days ?? 7);
-  setVal("lm-discount", lm.discount ?? 0.92);
+  const occ = paCfg.occupancy_pacing || {
+    enabled: true,
+    window_days: dc.demand_window_days ?? 14,
+    target_occupancy: 0.25,
+    sensitivity: dc.occupancy_factor ?? 0.20,
+    max_discount: 0.10,
+    max_increase: 0.10,
+    min_available_nights: 5,
+  };
+  const vel = paCfg.booking_velocity || {
+    enabled: true,
+    recent_window_days: dc.velocity_window_days ?? 7,
+    baseline_window_days: 60,
+    sensitivity: 0.08,
+    max_discount: 0.00,
+    max_increase: 0.15,
+    min_recent_bookings: 2,
+    min_baseline_bookings: 3,
+  };
+
+  const occEnabled = document.getElementById("occ-enabled");
+  if (occEnabled) occEnabled.checked = occ.enabled ?? true;
+  setVal("occ-window-days", occ.window_days ?? 14);
+  setVal("occ-target-occupancy", occ.target_occupancy ?? 0.25);
+  setVal("occ-sensitivity", occ.sensitivity ?? 0.20);
+  setVal("occ-max-discount", occ.max_discount ?? 0.10);
+  setVal("occ-max-increase", occ.max_increase ?? 0.10);
+  setVal("occ-min-available-nights", occ.min_available_nights ?? 5);
+
+  const velEnabled = document.getElementById("vel-enabled");
+  if (velEnabled) velEnabled.checked = vel.enabled ?? true;
+  setVal("vel-recent-window-days", vel.recent_window_days ?? 7);
+  setVal("vel-baseline-window-days", vel.baseline_window_days ?? 60);
+  setVal("vel-sensitivity", vel.sensitivity ?? 0.08);
+  setVal("vel-max-discount", vel.max_discount ?? 0.00);
+  setVal("vel-max-increase", vel.max_increase ?? 0.15);
+  setVal("vel-min-recent-bookings", vel.min_recent_bookings ?? 2);
+  setVal("vel-min-baseline-bookings", vel.min_baseline_bookings ?? 3);
+
+  // Competitor analysis
+  const compEnabled = document.getElementById("comp-enabled");
+  if (compEnabled) compEnabled.checked = Boolean(cfg.external_market_data?.enabled ?? false);
+  updateCompetitorPill();
 
   // Availability
   const av = cfg.availability || {};
   setVal("booking_window_days", av.booking_window_days ?? 120);
   setVal("min_stay_default", av.min_stay?.default ?? 2);
-  document.getElementById("block_day_before").checked = av.block_day_before ?? false;
-  document.getElementById("block_day_after").checked = av.block_day_after ?? false;
+  const avFarFuture = av.far_future || dc.far_future || {};
+  const avLastMinute = av.last_minute || dc.last_minute || {};
+  setVal("ff-window", avFarFuture.window_days ?? 60);
+  setVal("ff-discount", avFarFuture.discount ?? 0.9);
+  setVal("lm-window", avLastMinute.window_days ?? 7);
+  setVal("lm-discount", avLastMinute.discount ?? 0.92);
+  setVal("lm-threshold-occupancy", avLastMinute.threshold_occupancy ?? 0.5);
+  const blockBefore = document.getElementById("block_day_before");
+  const blockAfter = document.getElementById("block_day_after");
+  if (blockBefore) blockBefore.checked = av.block_day_before ?? false;
+  if (blockAfter) blockAfter.checked = av.block_day_after ?? false;
 
   // Price adjustment
   const pa = document.getElementById("price_adjust");
@@ -175,28 +225,114 @@ function setVal(id, value) {
   if (el) el.value = value;
 }
 
-// ── Weight sum tracking ──────────────────────────────────────────────────────
-function updateWeightDisplay() {
-  const ids = ["wt-demand","wt-event","wt-competitor","wt-yield"];
-  const vals = ids.map(id => parseFloat(document.getElementById(id)?.value || "0"));
-  const sum = vals.reduce((a, b) => a + b, 0);
-  const sumEl = document.getElementById("weights-sum");
-  if (sumEl) sumEl.textContent = Math.round(sum * 100) + "%";
-  const renormBtn = document.getElementById("renorm-btn");
-  if (renormBtn) renormBtn.style.display = Math.abs(sum - 1.0) < 0.001 ? "none" : "inline";
+function updateCompetitorPill() {
+  const enabled = document.getElementById("comp-enabled")?.checked ?? false;
+  const pill = document.getElementById("comp-enabled-pill");
+  if (!pill) return;
+  pill.textContent = enabled ? "ON" : "OFF";
+  if (enabled) {
+    pill.className = "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-green-100 text-green-800";
+  } else {
+    pill.className = "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-surface-container-low text-on-surface-variant";
+  }
 }
 
-function renormalizeWeights() {
-  const ids = ["wt-demand","wt-event","wt-competitor","wt-yield"];
-  const vals = ids.map(id => parseFloat(document.getElementById(id)?.value || "0"));
-  const sum = vals.reduce((a, b) => a + b, 0);
-  if (sum <= 0) return;
-  ids.forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el) el.value = (vals[i] / sum).toFixed(3);
+function shouldWriteLegacyShadow(cfg) {
+  const ver = parseInt(cfg.config_schema_version ?? 1, 10) || 1;
+  return ver <= LEGACY_WRITE_UNTIL_VERSION;
+}
+
+function buildDraftConfigFromForm() {
+  const cfg = JSON.parse(JSON.stringify(config || {}));
+
+  cfg.base_price = parseFloat(document.getElementById("base_price")?.value) || 200;
+  cfg.min_price = parseFloat(document.getElementById("min_price")?.value) || 100;
+  cfg.max_price = parseFloat(document.getElementById("max_price")?.value) || 800;
+  cfg.price_adjust = parseFloat(document.getElementById("price_adjust")?.value) || 0;
+  cfg.config_schema_version = CONFIG_SCHEMA_VERSION_CANONICAL;
+
+  cfg.dow_multipliers = {};
+  DOW_KEYS.forEach(k => {
+    cfg.dow_multipliers[k] = 1.0 + (parseFloat(document.getElementById("dow-" + k)?.value) || 0) / 100;
   });
-  updateWeightDisplay();
-  markDirty();
+
+  cfg.pricing_adjustments = cfg.pricing_adjustments || {};
+  cfg.pricing_adjustments.occupancy_pacing = {
+    enabled: document.getElementById("occ-enabled")?.checked ?? true,
+    window_days: parseInt(document.getElementById("occ-window-days")?.value) || 14,
+    target_occupancy: parseFloat(document.getElementById("occ-target-occupancy")?.value) || 0.25,
+    sensitivity: parseFloat(document.getElementById("occ-sensitivity")?.value) || 0.20,
+    max_discount: parseFloat(document.getElementById("occ-max-discount")?.value) || 0.10,
+    max_increase: parseFloat(document.getElementById("occ-max-increase")?.value) || 0.10,
+    min_available_nights: parseInt(document.getElementById("occ-min-available-nights")?.value) || 5,
+  };
+  cfg.pricing_adjustments.booking_velocity = {
+    enabled: document.getElementById("vel-enabled")?.checked ?? true,
+    recent_window_days: parseInt(document.getElementById("vel-recent-window-days")?.value) || 7,
+    baseline_window_days: parseInt(document.getElementById("vel-baseline-window-days")?.value) || 60,
+    sensitivity: parseFloat(document.getElementById("vel-sensitivity")?.value) || 0.08,
+    max_discount: parseFloat(document.getElementById("vel-max-discount")?.value) || 0.00,
+    max_increase: parseFloat(document.getElementById("vel-max-increase")?.value) || 0.15,
+    min_recent_bookings: parseInt(document.getElementById("vel-min-recent-bookings")?.value) || 2,
+    min_baseline_bookings: parseInt(document.getElementById("vel-min-baseline-bookings")?.value) || 3,
+  };
+
+  cfg.external_market_data = cfg.external_market_data || {};
+  cfg.external_market_data.enabled = document.getElementById("comp-enabled")?.checked ?? false;
+
+  cfg.availability = cfg.availability || {};
+  cfg.availability.booking_window_days = parseInt(document.getElementById("booking_window_days")?.value) || 120;
+  cfg.availability.min_stay = { default: parseInt(document.getElementById("min_stay_default")?.value) || 2, overrides: [] };
+  cfg.availability.block_day_before = document.getElementById("block_day_before")?.checked ?? false;
+  cfg.availability.block_day_after = document.getElementById("block_day_after")?.checked ?? false;
+  cfg.availability.far_future = {
+    window_days: parseInt(document.getElementById("ff-window")?.value) || 60,
+    discount: parseFloat(document.getElementById("ff-discount")?.value) || 0.9,
+  };
+  cfg.availability.last_minute = {
+    window_days: parseInt(document.getElementById("lm-window")?.value) || 7,
+    discount: parseFloat(document.getElementById("lm-discount")?.value) || 0.92,
+    threshold_occupancy: parseFloat(document.getElementById("lm-threshold-occupancy")?.value) || 0.5,
+  };
+
+  if (shouldWriteLegacyShadow(cfg)) {
+    cfg.demand_config = cfg.demand_config || {};
+    cfg.demand_config.demand_window_days = cfg.pricing_adjustments.occupancy_pacing.window_days;
+    cfg.demand_config.velocity_window_days = cfg.pricing_adjustments.booking_velocity.recent_window_days;
+    cfg.demand_config.occupancy_factor = cfg.pricing_adjustments.occupancy_pacing.sensitivity;
+    cfg.demand_config.velocity_factor = cfg.pricing_adjustments.booking_velocity.sensitivity;
+    cfg.demand_config.far_future = { ...cfg.availability.far_future };
+    cfg.demand_config.last_minute = { ...cfg.availability.last_minute };
+  }
+
+  cfg.seasonal_months = getSeasonalMonths();
+  cfg.holiday_buffer_days = parseInt(document.getElementById("holiday_buffer_days")?.value) || 3;
+  cfg.holiday_buffer_slope = parseFloat(document.getElementById("holiday_buffer_slope")?.value) || 0.05;
+
+  // Remove legacy yield-only knobs so config mirrors active UI controls.
+  for (const key of LEGACY_YIELD_ONLY_KEYS) {
+    delete cfg[key];
+  }
+  return cfg;
+}
+
+async function explainAdjustment(kind) {
+  const outId = kind === "occupancy" ? "occ-explain-output" : "vel-explain-output";
+  const key = kind === "occupancy" ? "occupancy_pacing" : "booking_velocity";
+  const output = document.getElementById(outId);
+  if (!output) return;
+
+  output.classList.remove("hidden");
+  output.textContent = "Generating explanation using current values…";
+
+  try {
+    const draft = buildDraftConfigFromForm();
+    const res = await api.post("/api/config/explain-adjustments", { config: draft, property_uid: getPropertyUid() });
+    const text = res?.[key]?.example_text || "No explanation generated.";
+    output.textContent = text;
+  } catch (e) {
+    output.textContent = `Failed to generate explanation: ${e.message}`;
+  }
 }
 
 // ── Presets ──────────────────────────────────────────────────────────────────
@@ -515,18 +651,6 @@ function setDirty(isDirty) {
 document.querySelectorAll("input").forEach(el => {
   el.addEventListener("change", markDirty);
 });
-["wt-demand","wt-event","wt-competitor","wt-yield"].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener("input", () => {
-    const lbl = document.getElementById(id + "-val");
-    if (lbl) {
-      const v = parseFloat(el.value);
-      lbl.textContent = v >= 0 ? `+${Math.round(v * 100)}%` : `${Math.round(v * 100)}%`;
-    }
-    updateWeightDisplay();
-    markDirty();
-  });
-});
 
 // Wire DOW inputs to mark dirty
 DOW_KEYS.forEach(k => {
@@ -564,7 +688,7 @@ async function saveConfig() {
   const btn = document.getElementById("save-config-btn");
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
 
-  const keyFields = ["base_price","min_price","max_price","strategy_weights","seasonal_months","demand_config","availability"];
+  const keyFields = ["base_price","min_price","max_price","seasonal_months","pricing_adjustments","availability","demand_config","external_market_data"];
   let beforeSnapshot = null;
   try {
     const before = await api.get(`/api/config/${getPropertyUid()}`);
@@ -574,50 +698,8 @@ async function saveConfig() {
     console.warn("Could not capture before config snapshot:", e);
   }
 
-  const cfg = JSON.parse(JSON.stringify(config || {}));
-
-  cfg.base_price = parseFloat(document.getElementById("base_price")?.value) || 200;
-  cfg.min_price = parseFloat(document.getElementById("min_price")?.value) || 100;
-  cfg.max_price = parseFloat(document.getElementById("max_price")?.value) || 800;
-  cfg.price_adjust = parseFloat(document.getElementById("price_adjust")?.value) || 0;
-
-  cfg.strategy_weights = {
-    demand: parseFloat(document.getElementById("wt-demand")?.value) || 0.5,
-    event: parseFloat(document.getElementById("wt-event")?.value) || 0.375,
-    competitor: parseFloat(document.getElementById("wt-competitor")?.value) || 0,
-    yield: parseFloat(document.getElementById("wt-yield")?.value) || 0.125,
-  };
-
-  cfg.dow_multipliers = {};
-  DOW_KEYS.forEach(k => {
-    cfg.dow_multipliers[k] = 1.0 + (parseFloat(document.getElementById("dow-" + k)?.value) || 0) / 100;
-  });
-
-  cfg.demand_config = cfg.demand_config || {};
-  cfg.demand_config.demand_window_days = parseInt(document.getElementById("demand_window_days")?.value) || 14;
-  cfg.demand_config.velocity_window_days = parseInt(document.getElementById("velocity_window_days")?.value) || 7;
-  cfg.demand_config.far_future = {
-    window_days: parseInt(document.getElementById("ff-window")?.value) || 60,
-    discount: parseFloat(document.getElementById("ff-discount")?.value) || 0.9,
-  };
-  cfg.demand_config.last_minute = {
-    window_days: parseInt(document.getElementById("lm-window")?.value) || 7,
-    discount: parseFloat(document.getElementById("lm-discount")?.value) || 0.92,
-  };
-
-  cfg.availability = cfg.availability || {};
-  cfg.availability.booking_window_days = parseInt(document.getElementById("booking_window_days")?.value) || 120;
-  cfg.availability.min_stay = { default: parseInt(document.getElementById("min_stay_default")?.value) || 2, overrides: [] };
-  cfg.availability.block_day_before = document.getElementById("block_day_before")?.checked ?? false;
-  cfg.availability.block_day_after = document.getElementById("block_day_after")?.checked ?? false;
-
-  cfg.demand_config.occupancy_factor = parseFloat(document.getElementById("occupancy_factor")?.value) || 0.3;
-  cfg.demand_config.velocity_factor = cfg.demand_config.velocity_factor ?? 0.5;
+  const cfg = buildDraftConfigFromForm();
   cfg.seasonal_base_prices = cfg.seasonal_base_prices ?? {};
-
-  cfg.seasonal_months = getSeasonalMonths();
-  cfg.holiday_buffer_days = parseInt(document.getElementById("holiday_buffer_days")?.value) || 3;
-  cfg.holiday_buffer_slope = parseFloat(document.getElementById("holiday_buffer_slope")?.value) || 0.05;
 
   // Local events
   cfg.local_events = [];
