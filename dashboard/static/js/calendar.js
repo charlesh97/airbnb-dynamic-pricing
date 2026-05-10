@@ -15,7 +15,8 @@ let resizeHandler = null;
 function fmtUsd(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "$0";
-  return `$${Math.round(n)}`;
+  const abs = Math.round(Math.abs(n));
+  return n < 0 ? `-$${abs}` : `$${abs}`;
 }
 
 function fmtPacificTime(value) {
