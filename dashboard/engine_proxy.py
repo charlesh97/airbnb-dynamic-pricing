@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import sys
 from calendar import monthrange
 from datetime import datetime, timedelta
@@ -21,6 +22,9 @@ from pricing_engine.engine import PricingEngine, DatePrice
 from pricing_engine.config_store import PropertyConfigStore
 from pricing_engine.config import EngineConfig
 from pricing_engine.client import PricingClient
+from pricing_engine.booking_adapter import fetch_bookings_for_window as _adapter_fetch
+
+logger = logging.getLogger(__name__)
 
 # ── Auto-holidays ─────────────────────────────────────────────────────────────
 
@@ -80,6 +84,8 @@ def _get_pricing_client() -> PricingClient:
         client.set_access_token(cfg.igms_access_token)
     else:
         client.access_token = cfg.igms_access_token
+    token_len = len(cfg.igms_access_token or "")
+    logger.info("iGMS client initialized; token_present=%s token_len=%d", bool(cfg.igms_access_token), token_len)
     return client
 
 
@@ -112,6 +118,10 @@ def get_calendar_with_live_prices(
             _to = f"{y}-{m}-{last_day:02d}"
 
         client = _get_pricing_client()
+        logger.info(
+            "iGMS get_calendar request property_uid=%s from=%s to=%s expanded_from=%s expanded_to=%s",
+            property_uid, from_date, to_date, _from, _to
+        )
         raw = client.get_calendar(
             property_uid=property_uid,
             from_date=_from,
@@ -119,6 +129,7 @@ def get_calendar_with_live_prices(
         )
         prices: dict[str, float] = {}
         entries = raw if isinstance(raw, list) else raw.get("data", [])
+        logger.info("iGMS get_calendar response entries=%d property_uid=%s", len(entries), property_uid)
         for entry in entries:
             date = entry.get("date", "")
             price = entry.get("price")
@@ -127,8 +138,13 @@ def get_calendar_with_live_prices(
                     prices[date] = float(price)
                 except (TypeError, ValueError):
                     pass
+        logger.info("iGMS parsed prices=%d property_uid=%s", len(prices), property_uid)
         return prices
     except Exception:
+        logger.exception(
+            "iGMS get_calendar failed property_uid=%s from=%s to=%s",
+            property_uid, from_date, to_date
+        )
         # Non-fatal: live prices are nice-to-have, not required
         return {}
 
@@ -202,21 +218,19 @@ def _fetch_bookings_for_window(
     to_date: str,
 ) -> list[dict[str, Any]]:
     """Fetch accepted bookings from iGMS for a property and date window.
-    
-    Note: IGMS returns bookings across all properties when filtering by date range,
-    so we fetch all and rely on property_uid filtering in the availability strategy.
+
+    Delegates to pricing_engine.booking_adapter for normalized, paginated,
+    property-filtered booking ingestion.
     """
     try:
         client = _get_pricing_client()
-        resp = client.get_bookings(
-            page=1,
-            start_date=from_date,
-            end_date=to_date,
-        )
-        data = resp.get("data", []) if resp else []
-        # Only include accepted/confirmed bookings
-        return [b for b in data if b.get("booking_status") in ("accepted", "confirmed")]
+        bookings = _adapter_fetch(client, property_uid, from_date, to_date)
+        logger.info("bookings fetch property_uid=%s window=%s–%s count=%d source=booking_adapter",
+                     property_uid, from_date, to_date, len(bookings))
+        return bookings or []
     except Exception:
+        logger.exception("bookings fetch failed property_uid=%s window=%s–%s",
+                         property_uid, from_date, to_date)
         return []
 
 
@@ -279,19 +293,140 @@ def save_property_config(property_uid: str, config: dict[str, Any]) -> None:
 
 # ── Properties list ────────────────────────────────────────────────────────────
 
+def _normalize_igms_properties(raw: Any) -> list[dict[str, Any]]:
+    """Normalize iGMS properties response to a list of dicts."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [r for r in raw if isinstance(r, dict)]
+    if isinstance(raw, dict):
+        data = raw.get("data")
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)]
+    return []
+
+
+def _build_default_property_config(
+    property_uid: str,
+    name: str,
+    state: str,
+    igms_property: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a minimal config for a new property discovered from iGMS."""
+    env_cfg = EngineConfig.from_env(_REPO_ROOT / ".env")
+    igms_property = igms_property or {}
+
+    listings = igms_property.get("listings")
+    listing_uids = listings if isinstance(listings, list) else []
+    location = igms_property.get("location") or {}
+    lat = igms_property.get("latitude", location.get("lat", 0)) or 0
+    lng = igms_property.get("longitude", location.get("lng", 0)) or 0
+
+    return {
+        "property_uid": property_uid,
+        "name": name,
+        "platforms": ["airbnb"],
+        "listing_uids": listing_uids,
+        "bedrooms": int(igms_property.get("bedrooms") or 0),
+        "bathrooms": float(igms_property.get("bathrooms") or 0),
+        "beds": int(igms_property.get("beds") or 0),
+        "sleeps": int(igms_property.get("persons") or igms_property.get("sleeps") or 0),
+        "latitude": float(lat),
+        "longitude": float(lng),
+        "base_price": env_cfg.default_base_price,
+        "min_price": env_cfg.default_min_price,
+        "max_price": env_cfg.default_max_price,
+        "quality_score": env_cfg.default_quality_score,
+        "strategy_weights": env_cfg.default_strategy_weights,
+        "availability": {
+            "booking_window_days": 120,
+            "min_stay": {"default": 2, "overrides": []},
+            "checkin_days": {"blocked": []},
+            "checkout_days": {"blocked": []},
+            "block_day_before": False,
+            "block_day_after": False,
+        },
+        "seasonal_months": {f"{m:02d}": 1.0 for m in range(1, 13)},
+        "dow_multipliers": {
+            "mon": 1.0, "tue": 1.0, "wed": 1.0, "thu": 1.0, "fri": 1.1, "sat": 1.1, "sun": 1.0,
+        },
+        "local_events": [],
+        "local_events_config": {},
+        "demand_config": {
+            "demand_window_days": 14,
+            "velocity_window_days": 7,
+            "velocity_factor": 0.15,
+            "occupancy_factor": 0.3,
+            "far_future": {"window_days": 60, "discount": 0.9},
+            "last_minute": {"window_days": 7, "discount": 0.92},
+        },
+        "holiday_buffer_days": 3,
+        "state": state or "CA",
+        "holiday_buffer_slope": 0.05,
+    }
+
+
+def _upsert_discovered_property_config(igms_property: dict[str, Any]) -> dict[str, Any] | None:
+    """Ensure a property config exists for a discovered iGMS property."""
+    property_uid = str(igms_property.get("property_uid") or "").strip()
+    if not property_uid:
+        return None
+
+    name = str(igms_property.get("name") or f"Property {property_uid}").strip()
+    location = igms_property.get("location") or {}
+    state = str(igms_property.get("state") or location.get("state") or "CA").strip() or "CA"
+
+    existing = _CONFIG_STORE.load(property_uid)
+    if not existing:
+        created = _build_default_property_config(property_uid, name, state, igms_property)
+        _CONFIG_STORE.save(property_uid, created)
+        logger.info("Created missing property config for discovered property_uid=%s name=%s", property_uid, name)
+        return created
+
+    changed = False
+    if existing.get("property_uid") != property_uid:
+        existing["property_uid"] = property_uid
+        changed = True
+    if name and existing.get("name") != name:
+        existing["name"] = name
+        changed = True
+    if state and existing.get("state") != state:
+        existing["state"] = state
+        changed = True
+    if isinstance(igms_property.get("listings"), list) and existing.get("listing_uids") in (None, [], {}):
+        existing["listing_uids"] = igms_property.get("listings")
+        changed = True
+
+    if changed:
+        _CONFIG_STORE.save(property_uid, existing)
+        logger.info("Updated property config metadata for property_uid=%s", property_uid)
+    return existing
+
+
 def get_properties() -> list[dict]:
-    """Return all property configs as a list of {property_uid, name, state} dicts."""
-    store = PropertyConfigStore()
-    props = []
-    for fname in sorted(Path(store.config_dir).glob("*.json")):
-        with open(fname) as f:
-            d = json.load(f)
-        props.append({
-            "property_uid": d.get("property_uid"),
-            "name": d.get("name", "Unnamed"),
-            "state": d.get("state", "CA"),
-        })
-    return props
+    """Return all locally-managed properties as {property_uid, name, state}.
+
+    Reads only config/properties/*.json files. Does NOT call iGMS.
+    Sorts by name then uid.
+    """
+    discovered: dict[str, dict[str, Any]] = {}
+
+    for fname in sorted(Path(_CONFIG_STORE.config_dir).glob("*.json")):
+        try:
+            d = json.loads(fname.read_text(encoding="utf-8"))
+        except Exception:
+            logger.warning("Skipping unreadable property config: %s", fname)
+            continue
+        uid = str(d.get("property_uid") or fname.stem).strip()
+        if not uid:
+            continue
+        discovered[uid] = {
+            "property_uid": uid,
+            "name": str(d.get("name") or f"Property {uid}"),
+            "state": str(d.get("state") or "CA"),
+        }
+
+    return sorted(discovered.values(), key=lambda p: (p.get("name", "").lower(), p.get("property_uid", "")))
 
 
 # ── Response builders ─────────────────────────────────────────────────────────
@@ -336,6 +471,14 @@ def _date_price_to_dict(
 
     af = dp.all_factors
 
+    is_booking_window_closed = getattr(avail, "blocked_reason", None) == "booking_window_closed"
+    has_live_price = current is not None and current > 0
+    has_proposed_change = has_live_price and delta is not None and abs(delta) >= 0.01
+    if is_booking_window_closed:
+        live_price_status = "closed"
+    else:
+        live_price_status = "ok" if has_live_price else "missing"
+
     return {
         "date": dp.date,
         "final_price": dp.final_price,
@@ -350,6 +493,8 @@ def _date_price_to_dict(
         "is_holiday": is_holiday,
         "holiday_name": holiday_name,
         "holiday_proximity": af.get("event", {}).get("holiday_proximity") if af else None,
+        "live_price_status": live_price_status,
+        "has_proposed_change": has_proposed_change,
     }
 
 
@@ -478,6 +623,14 @@ def _date_price_to_detail(
     subtotal_before_blend = ladder[-1]["running_total_after"] if ladder else base_price_val
     blend_adjustment_amount = round(dp.final_price - subtotal_before_blend, 2)
 
+    is_booking_window_closed = getattr(avail, "blocked_reason", None) == "booking_window_closed"
+    has_live_price = current is not None and current > 0
+    has_proposed_change = has_live_price and delta is not None and abs(delta) >= 0.01
+    if is_booking_window_closed:
+        live_price_status = "closed"
+    else:
+        live_price_status = "ok" if has_live_price else "missing"
+
     return {
         "date": dp.date,
         "property_uid": dp.property_uid,
@@ -558,4 +711,6 @@ def _date_price_to_detail(
         "blend_adjustment_amount": blend_adjustment_amount,
         "final_recommended": dp.final_price,
         "current_igms_price": current,
+        "live_price_status": live_price_status,
+        "has_proposed_change": has_proposed_change,
     }
