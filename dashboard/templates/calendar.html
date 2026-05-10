@@ -2,13 +2,12 @@
 {% block title %}Calendar — iGMS Pricing{% endblock %}
 
 {% block content %}
-<!-- Config updated banner (shown after save + redirect) -->
 <div id="config-updated-banner" class="fixed top-20 left-1/2 transform -translate-x-1/2 bg-amber-50 border border-amber-300 text-amber-800 px-6 py-2 rounded-full text-sm font-medium shadow-md z-50 hidden items-center gap-2" style="display:none">
   <span class="material-symbols-outlined text-amber-500" style="font-size:16px">auto_awesome</span>
   Config updated — showing new prices
 </div>
+<div id="igms-sync-banner" class="mb-4 hidden rounded-xl border px-4 py-3 text-sm font-medium"></div>
 
-<!-- Month Header with prev/next arrows -->
 <div class="flex items-center justify-between mb-12">
   <button onclick="prevMonth()" class="w-12 h-12 rounded-full hover:bg-surface-container-high flex items-center justify-center text-primary transition-colors">
     <span class="material-symbols-outlined text-3xl">chevron_left</span>
@@ -18,27 +17,18 @@
     <p class="font-body-md text-outline font-medium tracking-widest uppercase mt-2" id="year-label"></p>
   </div>
   <div class="flex items-center gap-3">
-    <button id="push-igms-btn" onclick="pushMonthToIGMS()" class="px-4 py-2 rounded-full bg-primary text-white text-label-sm font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+    <button id="push-igms-btn" onclick="pushMonthToIGMS()" class="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-white text-label-sm font-bold shadow-md hover:opacity-90 transition-opacity">
+      <span class="material-symbols-outlined text-base">cloud_upload</span>
       Push to iGMS
     </button>
+    <span id="push-status" class="flex items-center text-label-sm text-on-surface-variant ml-3"></span>
     <button onclick="nextMonth()" class="w-12 h-12 rounded-full hover:bg-surface-container-high flex items-center justify-center text-primary transition-colors">
       <span class="material-symbols-outlined text-3xl">chevron_right</span>
     </button>
   </div>
 </div>
 
-<!-- Push to iGMS button + status -->
-<div class="flex justify-end mb-4">
-  <button id="push-igms-btn" onclick="pushToIgms()" class="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-on-primary text-label-sm font-bold shadow-md hover:opacity-90 transition-opacity">
-    <span class="material-symbols-outlined text-base">cloud_upload</span>
-    Push to iGMS
-  </button>
-  <span id="push-status" class="flex items-center text-label-sm text-on-surface-variant ml-3"></span>
-</div>
-
-<!-- Calendar Grid in a liquid card -->
 <div class="bg-surface-container-lowest rounded-[40px] p-4 md:p-liquid-padding shadow-[0_30px_60px_rgba(33,150,243,0.06)]">
-  <!-- Weekday headers -->
   <div class="grid grid-cols-7 gap-2 md:gap-4 mb-4 text-center">
     <div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Sun</div>
     <div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Mon</div>
@@ -48,16 +38,13 @@
     <div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Fri</div>
     <div class="font-label-sm text-outline uppercase tracking-wider text-xs md:text-sm">Sat</div>
   </div>
-  <!-- Days grid -->
-  <div class="grid grid-cols-7 gap-2 md:gap-4 auto-rows-fr" id="days-grid">
-    <!-- Filled by JS -->
-  </div>
+  <div class="grid grid-cols-7 gap-2 md:gap-4 auto-rows-fr" id="days-grid"></div>
 </div>
 
-<!-- Legend row -->
 <div class="flex items-center gap-6 mt-6 text-label-sm text-on-surface-variant">
   <span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-secondary-container shadow-[0_0_8px_rgba(220,49,40,0.6)]"></span> High-demand / Holiday</span>
   <span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-surface-variant"></span> Normal</span>
+  <span class="ml-auto text-on-surface-variant text-xs font-mono" id="property-uid-ref-container">Property UID: <span id="property-uid-ref"></span></span>
 </div>
 {% endblock %}
 

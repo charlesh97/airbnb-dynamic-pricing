@@ -102,6 +102,9 @@ function initCalendar() {
   const switcher = document.getElementById("property-switcher");
   if (switcher) switcher.value = currentUid;
 
+  const uidRef = document.getElementById("property-uid-ref");
+  if (uidRef) uidRef.textContent = currentUid || getPropertyUid();
+
   if (params.get('refreshed') === '1') {
     const banner = document.getElementById('config-updated-banner');
     if (banner) {
@@ -120,6 +123,8 @@ async function loadMonth(year, month) {
   currentYear = year;
   currentMonth = month;
   const propertyUid = currentUid || getPropertyUid();
+  const uidRef = document.getElementById("property-uid-ref");
+  if (uidRef) uidRef.textContent = propertyUid;
 
   const url = new URL(window.location);
   url.searchParams.set("year", year);

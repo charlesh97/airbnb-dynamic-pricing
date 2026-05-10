@@ -147,6 +147,8 @@
     // Property switcher
     document.getElementById('property-switcher')?.addEventListener('change', function() {
       localStorage.setItem('atlas_property_uid', this.value);
+      const uidRef = document.getElementById("property-uid-ref");
+      if (uidRef) uidRef.textContent = this.value;
       const url = new URL(window.location);
       url.searchParams.set('property_uid', this.value);
       window.location.href = window.location.pathname + '?property_uid=' + this.value;
