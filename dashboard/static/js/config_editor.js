@@ -5,6 +5,9 @@ import { api } from "./api.js";
 const DEFAULT_PROPERTY = "731418607849470882";
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW_KEYS = ["mon","tue","wed","thu","fri","sat","sun"];
+const SEASONAL_PCT_MIN = -30;
+const SEASONAL_PCT_MAX = 30;
+const SEASONAL_PCT_GRID_STEP = 10;
 const CONFIG_SCHEMA_VERSION_CANONICAL = 4;
 const LEGACY_YIELD_ONLY_KEYS = [
   "advance_lead_factor",
@@ -55,6 +58,7 @@ let dirty = false;
 let seasonalMonths = {};
 let dragIndex = -1;
 let hoveredIndex = -1;
+let _toastTimer = null;
 
 // ── Init ────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
@@ -199,7 +203,8 @@ function populateAllFields(cfg) {
   seasonalMonths = {};
   MONTH_NAMES.forEach((_, i) => {
     const key = String(i + 1).padStart(2, "0");
-    seasonalMonths[key] = paCfg.seasonal_months_pct?.[key] ?? 0.0;
+    const monthPct = paCfg.seasonal_months_pct?.[key] ?? 0.0;
+    seasonalMonths[key] = Math.max(SEASONAL_PCT_MIN, Math.min(SEASONAL_PCT_MAX, monthPct));
   });
 
   // Holiday buffer days
@@ -229,6 +234,50 @@ function populateAllFields(cfg) {
 function setVal(id, value) {
   const el = document.getElementById(id);
   if (el) el.value = value;
+}
+
+function pickFields(source, keys) {
+  const out = {};
+  for (const key of keys) out[key] = source?.[key];
+  return out;
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    const sorted = {};
+    Object.keys(value).sort().forEach((k) => {
+      sorted[k] = stableValue(value[k]);
+    });
+    return sorted;
+  }
+  return value;
+}
+
+function snapshotsEqual(a, b) {
+  return JSON.stringify(stableValue(a)) === JSON.stringify(stableValue(b));
+}
+
+function showSaveToast(message) {
+  let toast = document.getElementById("save-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "save-toast";
+    toast.className = "fixed right-6 bottom-6 z-50 px-4 py-2 rounded-xl bg-on-surface text-surface-container-lowest text-sm font-semibold shadow-lg transition-all duration-200";
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(8px)";
+    toast.style.pointerEvents = "none";
+    document.body.appendChild(toast);
+  }
+
+  toast.textContent = message;
+  toast.style.opacity = "1";
+  toast.style.transform = "translateY(0)";
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(8px)";
+  }, 1400);
 }
 
 function updateCompetitorPill() {
@@ -405,14 +454,14 @@ function drawSeasonalChart() {
     });
   });
 
-  const PCT_MIN = -50;
-  const PCT_MAX = 100;
+  const PCT_MIN = SEASONAL_PCT_MIN;
+  const PCT_MAX = SEASONAL_PCT_MAX;
   const PCT_SPAN = PCT_MAX - PCT_MIN;
 
   // Grid lines
   ctx.strokeStyle = "#e2e8f0";
   ctx.lineWidth = 1;
-  for (let pct = PCT_MIN; pct <= PCT_MAX; pct += 25) {
+  for (let pct = PCT_MIN; pct <= PCT_MAX; pct += SEASONAL_PCT_GRID_STEP) {
     const py = PAD.top + chartH - ((pct - PCT_MIN) / PCT_SPAN) * chartH;
     ctx.beginPath();
     ctx.moveTo(PAD.left, py);
@@ -590,7 +639,7 @@ document.getElementById("seasonal-value-input")?.addEventListener("change", () =
   const val = parsePct(input?.value, 0);
   if (dragIndex >= 0 && dragIndex < 12) {
     const key = String(dragIndex + 1).padStart(2, "0");
-    seasonalMonths[key] = Math.max(-50, Math.min(100, val));
+    seasonalMonths[key] = Math.max(SEASONAL_PCT_MIN, Math.min(SEASONAL_PCT_MAX, val));
     const pctEl = document.getElementById("seasonal-value-pct");
     if (pctEl) pctEl.textContent = fmtPct(seasonalMonths[key]);
     if (input) input.value = fmtPct(seasonalMonths[key], 1);
@@ -689,14 +738,6 @@ async function saveConfig() {
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
 
   const keyFields = ["config_schema_version", "base_price", "min_price", "max_price", "pricing_adjustments", "availability", "external_market_data"];
-  let beforeSnapshot = null;
-  try {
-    const before = await api.get(`/api/config/${getPropertyUid()}`);
-    beforeSnapshot = {};
-    for (const k of keyFields) { beforeSnapshot[k] = before[k]; }
-  } catch (e) {
-    console.warn("Could not capture before config snapshot:", e);
-  }
 
   const cfg = buildDraftConfigFromForm();
   cfg.seasonal_base_prices = cfg.seasonal_base_prices ?? {};
@@ -711,13 +752,26 @@ async function saveConfig() {
     if (name && date) cfg.pricing_adjustments.local_events.push({ name, date, factor_pct: factorPct });
   });
 
+  const beforeSnapshot = pickFields(config || {}, keyFields);
+  const draftSnapshot = pickFields(cfg, keyFields);
+  if (snapshotsEqual(beforeSnapshot, draftSnapshot)) {
+    config = cfg;
+    dirty = false;
+    setDirty(false);
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="material-symbols-outlined text-sm">save</span> Save Config';
+    }
+    showSaveToast("Saved");
+    return;
+  }
+
   try {
     const saved = await api.put(`/api/config/${getPropertyUid()}`, cfg);
 
     try {
       const verify = await api.get(`/api/config/${getPropertyUid()}`);
-      const afterSnapshot = {};
-      for (const k of keyFields) { afterSnapshot[k] = verify[k]; }
+      const afterSnapshot = pickFields(verify, keyFields);
       const debug = { before: beforeSnapshot, after: afterSnapshot, saved_cfg: saved };
       console.log("saved_config_debug", debug);
       if (beforeSnapshot) {

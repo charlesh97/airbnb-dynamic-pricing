@@ -90,6 +90,70 @@ igms-pricing push
 igms-pricing schedule
 ```
 
+## Runbook A: Weekly AI/CLI Automation
+
+Use this path when an AI agent, cron job, or server process should run pricing pushes automatically every week.
+
+### Where config is stored
+
+- Per-property config files: `config/properties/{property_uid}.json`
+- Example:
+  - `config/properties/731418607849470882.json`
+  - `config/properties/850410072530215128.json`
+
+### One-time setup
+
+```bash
+cp .env.example .env
+pip install -e .
+```
+
+Fill `.env` with valid iGMS credentials/tokens before scheduling.
+
+### Weekly command
+
+```bash
+igms-pricing push
+```
+
+### Example cron (every Monday at 07:00)
+
+```cron
+0 7 * * 1 cd /absolute/path/to/airbnb-dynamic-pricing && /usr/bin/env bash -lc 'source .venv/bin/activate && igms-pricing push >> logs/weekly-pricing.log 2>&1'
+```
+
+Notes:
+- Make sure the environment running cron can read `.env`.
+- Ensure all target property JSON files already exist in `config/properties/`.
+
+## Runbook B: User Web App Config Editing
+
+Use this path when a human operator wants to adjust pricing knobs in the UI.
+
+### Where config is stored
+
+- The web editor reads/writes the same per-property JSON files in:
+  - `config/properties/{property_uid}.json`
+
+### Start the dashboard
+
+```bash
+cd dashboard
+python3 -m venv venv
+source venv/bin/activate
+pip install fastapi "starlette>=0.46.0,<1.0.0" uvicorn jinja2 holidays
+uvicorn main:app --reload --port 5005
+```
+
+Open [http://localhost:5005/calendar](http://localhost:5005/calendar).
+
+### Edit flow
+
+1. Open a property in the calendar/config UI.
+2. Change seasonality, temporal pricing, occupancy pacing, booking velocity, or other fields.
+3. Click **Save Config**.
+4. Use **Push to iGMS** from calendar view to send updated recommendations.
+
 ## Dashboard
 
 A FastAPI web dashboard for visualizing and managing pricing.

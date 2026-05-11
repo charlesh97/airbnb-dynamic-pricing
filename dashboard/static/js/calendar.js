@@ -52,6 +52,153 @@ function fmtUsd(value) {
   return n < 0 ? `-$${abs}` : `$${abs}`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function asNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function fmtNumber(value, digits = 2) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return n
+    .toFixed(digits)
+    .replace(/\.0+$/, "")
+    .replace(/(\.\d*[1-9])0+$/, "$1");
+}
+
+function fmtPercent(value, digits = 1) {
+  return `${fmtNumber(value, digits)}%`;
+}
+
+function fmtSignedPercent(value, digits = 1) {
+  const n = asNumber(value, 0);
+  if (Math.abs(n) < 1e-9) return "0%";
+  return n > 0 ? `+${fmtPercent(n, digits)}` : fmtPercent(n, digits);
+}
+
+function fmtSignedRatioPercent(ratio, digits = 1) {
+  return fmtSignedPercent(asNumber(ratio, 0) * 100, digits);
+}
+
+function fmtMultiplier(value, digits = 3) {
+  return `${fmtNumber(value, digits)}x`;
+}
+
+function humanizeReason(reason) {
+  const key = String(reason || "").trim();
+  const map = {
+    ok: "Applied",
+    disabled: "Disabled in config",
+    insufficient_available_nights: "Not enough available nights in window",
+    insufficient_recent_bookings: "Not enough recent bookings",
+    insufficient_baseline_bookings: "Not enough baseline bookings",
+    baseline_bpd_zero: "Baseline booking pace is zero",
+  };
+  if (map[key]) return map[key];
+  return key
+    .replaceAll("_", " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function buildTooltipHtml(lines) {
+  return lines
+    .filter((line) => line != null && String(line).trim())
+    .map((line) => escapeHtml(String(line)))
+    .join("<br>");
+}
+
+function buildOccupancyPacingTooltip(occ) {
+  const inputs = occ?.inputs || {};
+  const computed = occ?.computed || {};
+  const booked = asNumber(inputs.booked_nights, 0);
+  const available = asNumber(inputs.available_nights, 0);
+  const actualRatio = Number.isFinite(Number(computed.actual_occupancy))
+    ? asNumber(computed.actual_occupancy, 0)
+    : (available > 0 ? booked / available : 0);
+  const targetPct = asNumber(inputs.target_occupancy_pct, 0);
+  const deltaPct = asNumber(computed.delta, 0) * 100;
+  const sensitivityPct = asNumber(inputs.sensitivity_pct, 0);
+  const rawAdjPct = asNumber(computed.raw_adjustment, 0) * 100;
+  const cappedAdjPct = asNumber(computed.capped_adjustment, 0) * 100;
+  const maxDiscountPct = asNumber(inputs.max_discount_pct, 0);
+  const maxIncreasePct = asNumber(inputs.max_increase_pct, 0);
+  const multiplier = asNumber(occ?.multiplier, 1);
+  const multiplierDeltaPct = (multiplier - 1) * 100;
+
+  return buildTooltipHtml([
+    `Reason: ${humanizeReason(occ?.reason)}`,
+    `Actual occupancy: ${booked} / ${available} = ${fmtPercent(actualRatio * 100, 1)}`,
+    `Target occupancy: ${fmtPercent(targetPct, 1)}`,
+    `Delta: ${fmtSignedPercent(deltaPct, 1)}`,
+    `Sensitivity: ${fmtPercent(sensitivityPct, 1)}`,
+    `Raw adjustment: ${fmtSignedPercent(rawAdjPct, 2)}`,
+    `Cap range: ${fmtSignedPercent(-maxDiscountPct, 1)} to ${fmtSignedPercent(maxIncreasePct, 1)}`,
+    `Applied adjustment: ${fmtSignedPercent(cappedAdjPct, 2)}`,
+    `Multiplier: ${fmtMultiplier(multiplier)} (${fmtSignedPercent(multiplierDeltaPct, 2)})`,
+  ]);
+}
+
+function buildBookingVelocityTooltip(vel) {
+  const inputs = vel?.inputs || {};
+  const computed = vel?.computed || {};
+  const recentBookings = asNumber(inputs.recent_bookings, 0);
+  const baselineBookings = asNumber(inputs.baseline_bookings, 0);
+  const recentWindowDays = Math.max(asNumber(inputs.recent_window_days, 1), 1);
+  const baselineWindowDays = Math.max(asNumber(inputs.baseline_window_days, 1), 1);
+  const recentBpd = Number.isFinite(Number(computed.recent_bpd))
+    ? asNumber(computed.recent_bpd, 0)
+    : recentBookings / recentWindowDays;
+  const baselineBpd = Number.isFinite(Number(computed.baseline_bpd))
+    ? asNumber(computed.baseline_bpd, 0)
+    : baselineBookings / baselineWindowDays;
+  const velocityRatio = Number.isFinite(Number(computed.velocity_ratio))
+    ? asNumber(computed.velocity_ratio, 1)
+    : (baselineBpd > 0 ? recentBpd / baselineBpd : 1);
+  const velocityDeltaPct = asNumber(computed.velocity_delta, 0) * 100;
+  const sensitivityPct = asNumber(inputs.sensitivity_pct, 0);
+  const rawAdjPct = asNumber(computed.raw_adjustment, 0) * 100;
+  const cappedAdjPct = asNumber(computed.capped_adjustment, 0) * 100;
+  const maxDiscountPct = asNumber(inputs.max_discount_pct, 0);
+  const maxIncreasePct = asNumber(inputs.max_increase_pct, 0);
+  const multiplier = asNumber(vel?.multiplier, 1);
+  const multiplierDeltaPct = (multiplier - 1) * 100;
+
+  return buildTooltipHtml([
+    `Reason: ${humanizeReason(vel?.reason)}`,
+    `Recent pace: ${recentBookings} / ${recentWindowDays}d = ${fmtNumber(recentBpd, 3)} bookings/day`,
+    `Baseline pace: ${baselineBookings} / ${baselineWindowDays}d = ${fmtNumber(baselineBpd, 3)} bookings/day`,
+    `Velocity ratio: ${fmtNumber(velocityRatio, 3)}x`,
+    `Velocity delta: ${fmtSignedRatioPercent(asNumber(computed.velocity_delta, 0), 2)}`,
+    `Sensitivity: ${fmtPercent(sensitivityPct, 1)}`,
+    `Raw adjustment: ${fmtSignedPercent(rawAdjPct, 2)}`,
+    `Cap range: ${fmtSignedPercent(-maxDiscountPct, 1)} to ${fmtSignedPercent(maxIncreasePct, 1)}`,
+    `Applied adjustment: ${fmtSignedPercent(cappedAdjPct, 2)}`,
+    `Multiplier: ${fmtMultiplier(multiplier)} (${fmtSignedPercent(multiplierDeltaPct, 2)})`,
+  ]);
+}
+
+function withCalculationInfo(label, key, tooltipsByKey) {
+  const safeLabel = escapeHtml(label);
+  const tooltipHtml = tooltipsByKey[key];
+  if (!tooltipHtml) return safeLabel;
+  return `${safeLabel}
+    <span class="info-tooltip popup-calc-tooltip" aria-label="Calculation breakdown">
+      <span class="material-symbols-outlined">info</span>
+      <span class="tooltip-box">${tooltipHtml}</span>
+    </span>`;
+}
+
 function fmtPacificTime(value) {
   const t = value ? new Date(value) : new Date();
   return t.toLocaleTimeString([], {
@@ -605,13 +752,17 @@ function renderDayDetailPopup(detail, currentPrice, initialBlockedReason = null)
     </div>`;
 
   if (ladder.length > 0) {
+    const tooltipsByKey = {
+      occupancy_pacing: buildOccupancyPacingTooltip(detail?.demand?.occupancy_pacing || {}),
+      booking_velocity: buildBookingVelocityTooltip(detail?.demand?.booking_velocity || {}),
+    };
     for (const item of ladder) {
       const isPos = item.amount >= 0;
       const cls = isPos ? "positive" : "negative";
       const sign = isPos ? "+" : "-";
       breakdownRows += `
         <div class="breakdown-row ${cls}">
-          <span class="row-label">${item.label}</span>
+          <span class="row-label">${withCalculationInfo(item.label, item.key, tooltipsByKey)}</span>
           <span class="row-amount">${sign}${fmtUsd(Math.abs(item.amount))}</span>
         </div>`;
     }
@@ -734,7 +885,7 @@ window.pushMonthToIGMS = async function() {
       const count = resp.price_updates_sent || resp.pushed || 0;
       btn.textContent = `✓ Sent ${count}`;
       if (statusEl) statusEl.textContent = `Sent ${count} price updates`;
-      setTimeout(() => { btn.textContent = "Push to iGMS"; btn.disabled = false; if (statusEl) statusEl.textContent = ""; }, 3000);
+      setTimeout(() => { window.location.reload(); }, 600);
     } else {
       btn.textContent = "Failed";
       const errCount = resp.errors?.length || 0;

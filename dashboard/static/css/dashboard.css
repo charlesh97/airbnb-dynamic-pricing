@@ -496,11 +496,32 @@ input[type="range"]::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 .breakdown-row:last-of-type { border-bottom: none; }
-.breakdown-row .row-label { color: #404752; font-weight: 400; }
+.breakdown-row .row-label {
+  color: #404752;
+  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .breakdown-row .row-amount { font-weight: 600; color: #191c1e; }
 .breakdown-row.base-row .row-label { font-weight: 600; color: #191c1e; }
 .breakdown-row.positive .row-amount { color: #b81311; }
 .breakdown-row.negative .row-amount { color: #0061a4; }
+
+/* Popup-specific info tooltip sizing for long formula text */
+.popup-calc-tooltip { margin-left: 0; }
+.popup-calc-tooltip .material-symbols-outlined { font-size: 13px; }
+.popup-calc-tooltip .tooltip-box {
+  width: 300px;
+  max-width: min(300px, calc(100vw - 56px));
+  left: 0;
+  transform: none;
+  text-align: left;
+}
+.popup-calc-tooltip .tooltip-box::after {
+  left: 14px;
+  transform: none;
+}
 .subtotal-row {
   display: flex;
   justify-content: space-between;
