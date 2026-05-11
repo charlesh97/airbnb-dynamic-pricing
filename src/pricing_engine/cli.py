@@ -15,10 +15,11 @@ from rich.table import Table
 
 from .config import EngineConfig
 from .config_store import PropertyConfigStore
-from .engine import DatePrice, PricingEngine, apply_manual_overrides
+from .engine import DatePrice, PricingEngine
 from .client import PricingClient
 from .wheelhouse_fetcher import WheelhouseFetcher
 from .booking_adapter import fetch_bookings_for_window
+from .push_pipeline import PushPipelineRequest, run_push_pipeline
 
 console = Console()
 
@@ -28,16 +29,6 @@ def _setup_logging(level: str) -> None:
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-
-def _build_calendar_by_listing(calendar_data: list[dict]) -> dict[str, list[dict]]:
-    """Group calendar entries by listing_uid."""
-    by_listing: dict[str, list[dict]] = {}
-    for entry in calendar_data:
-        lst = entry.get("listing_uid", "")
-        if lst:
-            by_listing.setdefault(lst, []).append(entry)
-    return by_listing
 
 
 def _fetch_bookings_cached(client, property_uid, from_date, to_date):
@@ -202,16 +193,17 @@ def cmd_debug_day(args: argparse.Namespace) -> None:
                 return "n/a"
 
         # ── CONFIG SNAPSHOT ──────────────────────────────────────────────────
-        seasonal_cfg = prop.get("seasonal_months", {})
-        dow_cfg = prop.get("dow_multipliers", {})
+        pricing_adjustments = prop.get("pricing_adjustments", {}) or {}
+        seasonal_cfg = pricing_adjustments.get("seasonal_months_pct", {})
+        dow_cfg = pricing_adjustments.get("dow_pct", {})
         console.print("\n[bold white on blue]CONFIG[/bold white on blue]")
         console.print(
             "base="
             f"{_fmt_money(prop.get('base_price'))}  "
             "min/max="
             f"{_fmt_money(prop.get('min_price'))}/{_fmt_money(prop.get('max_price'))}  "
-            f"seasonal({month_key})={seasonal_cfg.get(month_key, 'default')}  "
-            f"dow({dow_key})={dow_cfg.get(dow_key, 1.0)}"
+            f"seasonal({month_key})={seasonal_cfg.get(month_key, 0.0):+.1f}%  "
+            f"dow({dow_key})={dow_cfg.get(dow_key, 0.0):+.1f}%"
         )
 
         # ── CURRENT VS RECOMMENDED ───────────────────────────────────────────
@@ -233,7 +225,6 @@ def cmd_debug_day(args: argparse.Namespace) -> None:
         console.print(
             f"  base_price={_fmt_money(explanation.get('base_price'))}  "
             f"event_multiplier={_fmt_num(explanation.get('event_multiplier'))}  "
-            f"yield_multiplier={_fmt_num(explanation.get('yield_multiplier'))}  "
             f"starting_price={_fmt_money(explanation.get('starting_price'))}"
         )
 
@@ -413,95 +404,55 @@ def cmd_dry_run(args: argparse.Namespace) -> None:
 
 
 def cmd_push(args: argparse.Namespace) -> None:
-    """Push computed prices to iGMS (requires pricing-management scope)."""
+    """Push computed prices to iGMS via the shared pipeline."""
     _setup_logging(args.log_level)
-    config = EngineConfig.from_env(args.env)
-    engine = PricingEngine()
-    client = PricingClient.from_env()
-
-    from_date = datetime.now().strftime("%Y-%m-%d")
-    to_date = (datetime.now() + timedelta(days=config.pricing_window_days)).strftime("%Y-%m-%d")
-
     store = PropertyConfigStore()
     uids = store.list_properties()
+
+    if not uids:
+        console.print("[red]No local property configs found in config/properties/[/red]")
+        return
 
     for uid in uids:
         prop_config = store.load(uid)
         if not prop_config:
             continue
         name = prop_config.get("name", uid)
-        console.print(f"\n[bold]Pushing prices for {name}...[/bold]")
-        try:
-            calendar = client.get_calendar(uid, from_date, to_date)
-            calendar_entries = calendar.get("data", [])
+        console.print(f"\n[bold]Pushing prices for {name} ({uid})...[/bold]")
 
-            by_listing = _build_calendar_by_listing(calendar_entries)
+        req = PushPipelineRequest(
+            property_uid=uid,
+            dry_run=args.dry_run,
+            env_path=args.env,
+        )
+        result = run_push_pipeline(req)
 
-            if not by_listing:
-                console.print(f"  [yellow]No calendar entries for {uid}[/yellow]")
-                continue
+        if args.dry_run:
+            console.print(f"  [yellow]DRY RUN[/yellow]")
+        console.print(f"  Window : {result.from_date} → {result.to_date}")
+        console.print(f"  Booking window : {result.base_booking_window_days}d (effective {result.effective_window_days}d)")
+        console.print(f"  Dates evaluated : {result.dates_evaluated}")
+        console.print(f"  Price updates   : [green]{result.price_updates_sent}[/green]")
+        console.print(f"  Availability updates: [green]{result.availability_updates_sent}[/green]")
+        console.print(f"  Skipped (booked): {result.dates_skipped_booked}")
+        console.print(f"  Skipped (blocked): {result.dates_skipped_live_blocked}")
+        console.print(f"  Skipped (outside): {result.dates_skipped_outside_window}")
 
-            bookings = _fetch_bookings_cached(client, uid, from_date, to_date)
+        if result.skipped_live_blocked_dates:
+            for d in result.skipped_live_blocked_dates[:10]:
+                console.print(f"    [yellow]blocked: {d}[/yellow]")
+            if len(result.skipped_live_blocked_dates) > 10:
+                console.print(f"    ... and {len(result.skipped_live_blocked_dates) - 10} more")
 
-            for listing_uid, entries in by_listing.items():
-                listing_name = entries[0].get("listing_name", listing_uid) if entries else listing_uid
-                console.print(f"\n  Listing: {listing_name} ({listing_uid})")
+        for err in result.errors:
+            console.print(f"  [red]Error: {err}[/red]")
+        for warn in result.warnings:
+            console.print(f"  [yellow]Warning: {warn}[/yellow]")
 
-                if args.dry_run:
-                    console.print(f"    [yellow]DRY RUN — would update {len(entries)} dates[/yellow]")
-                    for entry in entries:
-                        rec = engine.compute_price(
-                            property_uid=uid,
-                            date=entry.get("date", ""),
-                            calendar_entry=entry,
-                            bookings_in_window=bookings,
-                            config=config.__dict__,
-                        )
-                        console.print(
-                            f"    {entry.get('date')}: current ${entry.get('price', 0)} "
-                            f"→ recommended ${rec.final_price}"
-                        )
-                    continue
-
-                for entry in entries:
-                    date = entry.get("date", "")
-                    rec = engine.compute_price(
-                        property_uid=uid,
-                        date=date,
-                        calendar_entry=entry,
-                        bookings_in_window=bookings,
-                        config=config.__dict__,
-                    )
-
-                    result = client.update_calendar_price(
-                        listing_uid=listing_uid,
-                        property_uid=uid,
-                        date=date,
-                        price=rec.final_price,
-                        currency="USD",
-                        min_stay=entry.get("min_stay"),
-                    )
-
-                    status = getattr(result, 'status_code', 0)
-                    payload = getattr(result, 'payload', result)
-
-                    if isinstance(payload, dict) and payload.get("error"):
-                        err = payload["error"]
-                        console.print(
-                            f"    [red]✗ {date}: {err.get('message','?')} "
-                            f"(code {err.get('code','?')})[/red]"
-                        )
-                    elif status in (200, 201, 204):
-                        console.print(
-                            f"    [green]✓ {date}: ${current_price} → ${rec.final_price}[/green]"
-                        )
-                    else:
-                        console.print(
-                            f"    [red]✗ {date}: HTTP {status} — {payload}[/red]"
-                        )
-
-        except Exception as e:
-            console.print(f"[red]Error for {uid}: {e}[/red]")
+        if result.success:
+            console.print(f"  [green]Push completed successfully.[/green]")
+        else:
+            console.print(f"  [red]Push completed with errors.[/red]")
 
 
 # ─── Loop 8: new commands ─────────────────────────────────────────────────────
@@ -716,97 +667,50 @@ def cmd_wheelhouse_check(args: argparse.Namespace) -> None:
 
 
 def cmd_push_config(args: argparse.Namespace) -> None:
-    """Load property JSON, compute prices + availability, push to iGMS."""
+    """Load property JSON, push to iGMS via the shared pipeline."""
     _setup_logging(args.log_level)
-    config = EngineConfig.from_env(args.env)
     store = PropertyConfigStore()
     prop_config = store.load(args.property)
     if not prop_config:
-        console.print(f"[red]No config found for property {args.property}[/red]")
+        console.print(f"[red]No config found for {args.property}[/red]")
         return
 
-    merged = store.merge_with_env_defaults(args.property, config.__dict__)
-    engine = PricingEngine()
-    client = PricingClient.from_env()
+    name = prop_config.get("name", args.property)
+    console.print(f"\n[bold]Pushing prices for {name} ({args.property})...[/bold]")
 
-    from_date = datetime.now().strftime("%Y-%m-%d")
-    to_date = (datetime.now() + timedelta(days=config.pricing_window_days)).strftime("%Y-%m-%d")
+    req = PushPipelineRequest(
+        property_uid=args.property,
+        dry_run=args.dry_run,
+        env_path=args.env,
+    )
+    result = run_push_pipeline(req)
 
-    bookings = _fetch_bookings_cached(client, args.property, from_date, to_date)
+    if args.dry_run:
+        console.print(f"  [yellow]DRY RUN[/yellow]")
+    console.print(f"  Window : {result.from_date} → {result.to_date}")
+    console.print(f"  Booking window : {result.base_booking_window_days}d (effective {result.effective_window_days}d)")
+    console.print(f"  Dates evaluated : {result.dates_evaluated}")
+    console.print(f"  Price updates   : [green]{result.price_updates_sent}[/green]")
+    console.print(f"  Availability updates: [green]{result.availability_updates_sent}[/green]")
+    console.print(f"  Skipped (booked): {result.dates_skipped_booked}")
+    console.print(f"  Skipped (blocked): {result.dates_skipped_live_blocked}")
+    console.print(f"  Skipped (outside): {result.dates_skipped_outside_window}")
 
-    try:
-        calendar = client.get_calendar(args.property, from_date, to_date)
-    except Exception as e:
-        console.print(f"[red]Calendar fetch failed: {e}[/red]")
-        return
+    if result.skipped_live_blocked_dates:
+        for d in result.skipped_live_blocked_dates[:10]:
+            console.print(f"    [yellow]blocked: {d}[/yellow]")
+        if len(result.skipped_live_blocked_dates) > 10:
+            console.print(f"    ... and {len(result.skipped_live_blocked_dates) - 10} more")
 
-    calendar_entries = calendar.get("data", [])
-    by_listing = _build_calendar_by_listing(calendar_entries)
+    for err in result.errors:
+        console.print(f"  [red]Error: {err}[/red]")
+    for warn in result.warnings:
+        console.print(f"  [yellow]Warning: {warn}[/yellow]")
 
-    if not by_listing:
-        console.print(f"[yellow]No calendar entries for {args.property}[/yellow]")
-        return
-
-    for listing_uid, entries in by_listing.items():
-        console.print(f"\n[bold]Listing {listing_uid} — pushing prices[/bold]")
-
-        for entry in entries:
-            date = entry.get("date", "")
-
-            # Compute availability
-            avail = engine.compute_availability(
-                property_uid=args.property,
-                date=date,
-                calendar_entry=entry,
-                bookings_in_window=bookings,
-                config=merged,
-            )
-
-            # Skip unavailable dates unless override
-            if not avail.is_available and not args.force:
-                console.print(f"  [yellow]~ {date}: unavailable ({avail.blocked_reason})[/yellow]")
-                continue
-
-            # Compute price
-            rec = engine.compute_price(
-                property_uid=args.property,
-                date=date,
-                calendar_entry=entry,
-                bookings_in_window=bookings,
-                config=merged,
-            )
-
-            # Apply manual overrides
-            rec = apply_manual_overrides(rec, args.property, date, merged)
-
-            if args.dry_run:
-                console.print(
-                    f"  [yellow]DRY RUN[/yellow] {date}: "
-                    f"${entry.get('price', 0):.2f} → ${rec.final_price:.2f} "
-                    f"(min_stay={avail.min_stay})"
-                )
-                continue
-
-            try:
-                result = client.update_calendar_price(
-                    listing_uid=listing_uid,
-                    property_uid=args.property,
-                    date=date,
-                    price=rec.final_price,
-                    currency="USD",
-                    min_stay=avail.min_stay if avail.is_available else None,
-                )
-                status = getattr(result, 'status_code', 0)
-                if status in (200, 201, 204):
-                    console.print(
-                        f"  [green]✓[/green] {date}: ${rec.final_price:.2f} "
-                        f"(min_stay={avail.min_stay})"
-                    )
-                else:
-                    payload = getattr(result, 'payload', result)
-                    console.print(f"  [red]✗ {date}: HTTP {status} — {payload}[/red]")
-            except Exception as e:
-                console.print(f"  [red]✗ {date}: {e}[/red]")
+    if result.success:
+        console.print(f"  [green]Push completed successfully.[/green]")
+    else:
+        console.print(f"  [red]Push completed with errors.[/red]")
 
 
 def main() -> None:
@@ -850,7 +754,6 @@ def main() -> None:
     push_cfg = sub.add_parser("push-config", help="Load property JSON, compute, push to iGMS")
     push_cfg.add_argument("--property", required=True, help="Property UID")
     push_cfg.add_argument("--dry-run", action="store_true")
-    push_cfg.add_argument("--force", action="store_true", help="Push even for blocked dates")
     push_cfg.set_defaults(func=cmd_push_config)
 
     debug = sub.add_parser("debug-day", help="Factor breakdown for a single day across all properties")

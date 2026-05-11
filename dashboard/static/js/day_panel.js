@@ -55,6 +55,7 @@ export const DayPanel = (() => {
     const velInputs = vel.inputs || {};
     const velComputed = vel.computed || {};
     const pct = (v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+    const multPct = (m) => `${((Number(m) - 1) * 100 >= 0 ? "+" : "")}${((Number(m) - 1) * 100).toFixed(1)}%`;
     const num = (v, fallback = "0.000") => Number.isFinite(v) ? v.toFixed(3) : fallback;
     const valOrNA = (v, digits = 3) => Number.isFinite(v) ? v.toFixed(digits) : "n/a";
 
@@ -85,9 +86,9 @@ export const DayPanel = (() => {
         <h3>Seasonal &amp; DOW</h3>
         <div class="panel-row"><span class="label">Rule</span><span class="value">${d.seasonal.rule}</span></div>
         ${d.seasonal.detail ? `<div class="panel-row"><span class="label">Detail</span><span class="value">${d.seasonal.detail}</span></div>` : ""}
-        <div class="panel-row"><span class="label">Seasonal Mult</span><span class="value">${d.seasonal.raw_seasonal_multiplier.toFixed(3)}</span></div>
-        <div class="panel-row"><span class="label">DOW (${d.seasonal.dow})</span><span class="value">×${d.seasonal.dow_multiplier.toFixed(3)}</span></div>
-        <div class="panel-row"><span class="label">Effective</span><span class="value">×${d.seasonal.effective_seasonal.toFixed(3)}</span></div>
+        <div class="panel-row"><span class="label">Seasonal Adj</span><span class="value">${multPct(d.seasonal.raw_seasonal_multiplier)}</span></div>
+        <div class="panel-row"><span class="label">DOW (${d.seasonal.dow})</span><span class="value">${multPct(d.seasonal.dow_multiplier)}</span></div>
+        <div class="panel-row"><span class="label">Effective Adj</span><span class="value">${multPct(d.seasonal.effective_seasonal)}</span></div>
       </div>
 
       <div class="panel-section">

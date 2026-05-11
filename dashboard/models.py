@@ -95,7 +95,6 @@ class DayDetailResponse(BaseModel):
     demand: dict
     event: dict
     competitor: dict
-    strategy_weights: dict
     strategy_prices: dict
     raw_factors: dict
     adjustment_ladder: list[AdjustmentItem] = Field(default_factory=list)

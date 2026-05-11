@@ -62,6 +62,43 @@ function fmtPacificTime(value) {
   });
 }
 
+function hasEffectiveChange(proposedPrice, livePrice) {
+  if (!Number.isFinite(proposedPrice) || !Number.isFinite(livePrice)) return false;
+  return Math.abs(Math.round((proposedPrice - livePrice) * 100)) >= 1;
+}
+
+function formatBlockedReason(reason, minStay = null) {
+  const blockedReason = String(reason || "").trim();
+  if (!blockedReason) return "";
+
+  if (blockedReason === "igms_unavailable") {
+    return "Unavailable due to iGMS blocked";
+  }
+  if (blockedReason === "min_stay_runway_blocked") {
+    const stay = Number(minStay);
+    if (Number.isFinite(stay) && stay > 0) {
+      return `Unavailable due to minimum ${stay}-night stay required`;
+    }
+    return "Unavailable due to minimum night stay required";
+  }
+  if (blockedReason === "booked") return "Unavailable due to booked dates";
+  if (blockedReason === "booking_window_closed") return "Outside booking window";
+  if (blockedReason.startsWith("checkin blocked")) return "Unavailable due to check-in day restriction";
+  if (blockedReason.startsWith("checkout blocked")) return "Unavailable due to check-out day restriction";
+  if (blockedReason.startsWith("day_before_checkin_blocked")) return "Unavailable due to pre-check-in block day";
+  if (blockedReason.startsWith("day_after_checkout_blocked")) return "Unavailable due to post-checkout block day";
+  if (blockedReason === "same_day_checkin not allowed") return "Unavailable due to same-day check-in rule";
+  if (blockedReason.startsWith("isolated gap night")) return "Unavailable due to isolated gap protection";
+  if (blockedReason === "isolated_gap") return "Unavailable due to isolated gap protection";
+
+  const normalized = blockedReason
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized ? `Unavailable due to ${normalized}` : "Unavailable";
+}
+
 function updateFetchStatus(state, meta) {
   const el = document.getElementById("fetch-status");
   const dot = document.getElementById("fetch-dot");
@@ -315,9 +352,10 @@ function buildCell(day, propertyUid, bookingSpanMap = {}) {
   const proposedPriceRaw = Number(day.final_price);
   const proposedPrice = Number.isFinite(proposedPriceRaw) ? proposedPriceRaw : null;
   const proposedDelta = livePrice != null && proposedPrice != null ? proposedPrice - livePrice : null;
-  const hasProposedChange = !isUnavailable && (
-    Boolean(day.has_proposed_change) || (proposedDelta != null && Math.abs(proposedDelta) >= 0.01)
-  );
+  const effectiveProposedChange = livePrice != null && proposedPrice != null
+    ? hasEffectiveChange(proposedPrice, livePrice)
+    : false;
+  const hasProposedChange = !isUnavailable && effectiveProposedChange;
 
   // Bottom: primary live iGMS price
   const priceDiv = document.createElement("div");
@@ -355,7 +393,7 @@ function buildCell(day, propertyUid, bookingSpanMap = {}) {
     proposedText.textContent = `Proposed ${fmtUsd(proposedPrice)}`;
     proposedRow.appendChild(proposedText);
 
-    if (proposedDelta != null) {
+    if (proposedDelta != null && effectiveProposedChange) {
       const delta = document.createElement("span");
       delta.className = "proposed-delta";
       delta.textContent = `${proposedDelta >= 0 ? "+" : "-"}${fmtUsd(Math.abs(proposedDelta))}`;
@@ -452,7 +490,7 @@ async function openDayPopup(date, propertyUid, currentPrice, cellElement, blocke
       closeDayPopup();
       return;
     }
-    renderDayDetailPopup(detail, currentPrice);
+    renderDayDetailPopup(detail, currentPrice, blockedReason);
     positionPopup(cellElement);
   } catch (e) {
     const popupContent = document.getElementById("popup-content");
@@ -541,22 +579,29 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function renderDayDetailPopup(detail, currentPrice) {
+function renderDayDetailPopup(detail, currentPrice, initialBlockedReason = null) {
   const popupDate = document.getElementById("popup-date");
   const popupProp = document.getElementById("popup-property");
   const popupContent = document.getElementById("popup-content");
   const popupFooter = document.getElementById("popup-footer");
 
   const finalPrice = detail.final_recommended || detail.final_price || 0;
+  const effectiveBlockedReason = initialBlockedReason || detail.blocked_reason || null;
+  const isUnavailable = detail.is_available === false
+    || effectiveBlockedReason === "igms_unavailable"
+    || effectiveBlockedReason === "booked";
   const hasLive = detail.live_price_status === "ok" && typeof (detail.current_igms_price ?? currentPrice) === "number" && (detail.current_igms_price ?? currentPrice) > 0;
   const igmsPrice = hasLive ? (detail.current_igms_price ?? currentPrice) : null;
 
   if (popupDate) popupDate.textContent = detail.date;
 
-  const hasProposedChange = detail.is_available !== false && (
-    Boolean(detail.has_proposed_change) || (igmsPrice != null && Math.abs(finalPrice - igmsPrice) >= 0.01)
-  );
-  if (popupProp) popupProp.textContent = "";
+  const effectiveProposedChange = igmsPrice != null
+    ? hasEffectiveChange(finalPrice, igmsPrice)
+    : false;
+  const hasProposedChange = !isUnavailable && effectiveProposedChange;
+  if (popupProp) popupProp.textContent = isUnavailable
+    ? formatBlockedReason(effectiveBlockedReason, detail.min_stay)
+    : "";
 
   const ladder = detail.adjustment_ladder || [];
   const baseRate = detail.base_rate || 0;
@@ -634,12 +679,15 @@ function renderDayDetailPopup(detail, currentPrice) {
     const change = finalPrice - igmsPrice;
     const sign = change >= 0 ? "+" : "-";
     const cls = change >= 0 ? "positive" : "negative";
+    const changeHtml = (effectiveProposedChange && !isUnavailable)
+      ? `<span class="igms-change ${cls}">${sign}${fmtUsd(Math.abs(change))} to push</span>`
+      : "";
     igmsHtml = `
       <div class="igms-line">
         <span class="igms-label">Current iGMS</span>
         <span>
           <span class="igms-value">${fmtUsd(igmsPrice)}</span>
-          <span class="igms-change ${cls}">${sign}${fmtUsd(Math.abs(change))} to push</span>
+          ${changeHtml}
         </span>
       </div>`;
   } else {
@@ -652,8 +700,9 @@ function renderDayDetailPopup(detail, currentPrice) {
   }
 
   const isBookingWindowClosed = detail.blocked_reason === "booking_window_closed";
-  const proposedHeader = detail.is_available === false
-    ? `<div class="popup-proposed-header"><span class="popup-proposed-price">Unavailable</span></div>`
+  const unavailableHeader = formatBlockedReason(effectiveBlockedReason, detail.min_stay) || "Unavailable";
+  const proposedHeader = isUnavailable
+    ? `<div class="popup-proposed-header"><span class="popup-proposed-price">${unavailableHeader}</span></div>`
     : isBookingWindowClosed
     ? `<div class="popup-proposed-header"><span class="popup-proposed-price">Outside booking window</span></div>`
     : hasProposedChange

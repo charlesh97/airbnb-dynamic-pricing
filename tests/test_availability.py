@@ -196,6 +196,65 @@ class TestAvailabilityStrategy(unittest.TestCase):
         self.assertFalse(rec.is_available)
         self.assertEqual(rec.blocked_reason, "booking_window_closed")
 
+    def test_min_stay_runway_blocks_when_not_enough_consecutive_nights(self):
+        config = {
+            "availability": {
+                "min_stay": {"default": 3, "overrides": []},
+                "enforce_min_stay": True,
+                "checkin_days": {"blocked": []},
+                "checkout_days": {"blocked": []},
+                "same_day_checkin": {"allowed": False},
+                "same_day_checkout": {"allowed": False},
+                "gap_handling": {"auto_block_gaps": False},
+            }
+        }
+        target = datetime.now().date() + timedelta(days=10)
+        bookings = [
+            {
+                "checkin": (target + timedelta(days=2)).isoformat(),
+                "checkout": (target + timedelta(days=4)).isoformat(),
+                "booking_status": "confirmed",
+            }
+        ]
+        rec = self.strat.compute(
+            property_uid="prop1",
+            date=target.isoformat(),
+            calendar_entry=None,
+            bookings_in_window=bookings,
+            config=config,
+        )
+        self.assertFalse(rec.is_available)
+        self.assertEqual(rec.blocked_reason, "min_stay_runway_blocked")
+
+    def test_min_stay_runway_can_be_disabled(self):
+        config = {
+            "availability": {
+                "min_stay": {"default": 3, "overrides": []},
+                "enforce_min_stay": False,
+                "checkin_days": {"blocked": []},
+                "checkout_days": {"blocked": []},
+                "same_day_checkin": {"allowed": False},
+                "same_day_checkout": {"allowed": False},
+                "gap_handling": {"auto_block_gaps": False},
+            }
+        }
+        target = datetime.now().date() + timedelta(days=10)
+        bookings = [
+            {
+                "checkin": (target + timedelta(days=2)).isoformat(),
+                "checkout": (target + timedelta(days=4)).isoformat(),
+                "booking_status": "confirmed",
+            }
+        ]
+        rec = self.strat.compute(
+            property_uid="prop1",
+            date=target.isoformat(),
+            calendar_entry=None,
+            bookings_in_window=bookings,
+            config=config,
+        )
+        self.assertTrue(rec.is_available)
+
 
 class TestMinStayComputation(unittest.TestCase):
     def test_default_wins(self):
@@ -225,41 +284,47 @@ class TestBlockDayAfter(unittest.TestCase):
                 "block_day_after": True,
                 "block_day_before": False,
                 "booking_window_days": 120,
+                "enforce_min_stay": False,
             }
         }
+        base = datetime.now().date() + timedelta(days=20)
+        checkin = base
+        checkout = base + timedelta(days=2)
+        checkout_plus_one = checkout + timedelta(days=1)
+        checkout_minus_one = checkout - timedelta(days=1)
         bookings = [{
-            "checkin": "2026-05-09",
-            "checkout": "2026-05-11",
+            "checkin": checkin.isoformat(),
+            "checkout": checkout.isoformat(),
             "reservation_code": "RES001",
             "booking_status": "accepted",
         }]
 
         result_checkout_night = strat.compute(
             property_uid="test",
-            date="2026-05-11",
+            date=checkout.isoformat(),
             calendar_entry=None,
             bookings_in_window=bookings,
             config=config,
         )
-        self.assertFalse(result_checkout_night.is_available, "Checkout night (May 11) should be blocked")
+        self.assertFalse(result_checkout_night.is_available, "Checkout night should be blocked")
 
         result_plus_one = strat.compute(
             property_uid="test",
-            date="2026-05-12",
+            date=checkout_plus_one.isoformat(),
             calendar_entry=None,
             bookings_in_window=bookings,
             config=config,
         )
-        self.assertTrue(result_plus_one.is_available, "checkout+1 (May 12) should NOT be blocked")
+        self.assertTrue(result_plus_one.is_available, "checkout+1 should NOT be blocked")
 
         result_minus_one = strat.compute(
             property_uid="test",
-            date="2026-05-10",
+            date=checkout_minus_one.isoformat(),
             calendar_entry=None,
             bookings_in_window=bookings,
             config=config,
         )
-        self.assertTrue(result_minus_one.is_available, "checkout-1 (May 10) should NOT be blocked by block_day_after")
+        self.assertTrue(result_minus_one.is_available, "checkout-1 should NOT be blocked by block_day_after")
 
 
 if __name__ == "__main__":

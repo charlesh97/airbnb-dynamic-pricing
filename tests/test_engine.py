@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from pricing_engine.engine import PricingEngine
+from pricing_engine.engine import PricingEngine, _round_price_to_nearest_dollar
 
 
 class TestPricingEngine(unittest.TestCase):
@@ -16,16 +16,6 @@ class TestPricingEngine(unittest.TestCase):
             "default_base_price": 250.0,
             "min_price": 100.0,
             "max_price": 500.0,
-            "seasonal_months": {f"{m:02d}": 1.0 for m in range(1, 13)},
-            "dow_multipliers": {
-                "mon": 1.0,
-                "tue": 1.0,
-                "wed": 1.0,
-                "thu": 1.0,
-                "fri": 1.0,
-                "sat": 1.0,
-                "sun": 1.0,
-            },
             "availability": {
                 "booking_window_days": 120,
                 "min_stay": {"default": 2, "overrides": []},
@@ -33,29 +23,40 @@ class TestPricingEngine(unittest.TestCase):
                 "checkout_days": {"blocked": []},
                 "block_day_before": False,
                 "block_day_after": False,
-                "far_future": {"window_days": 60, "discount": 1.0},
-                "last_minute": {"window_days": 7, "discount": 1.0, "threshold_occupancy": 1.0},
+                "enforce_min_stay": True,
             },
             "pricing_adjustments": {
-                "occupancy_pacing": {
-                    "enabled": True,
-                    "window_days": 14,
-                    "target_occupancy": 0.25,
-                    "sensitivity": 0.2,
-                    "max_discount": 0.1,
-                    "max_increase": 0.1,
-                    "min_available_nights": 5,
+                "seasonal_months_pct": {f"{m:02d}": 0.0 for m in range(1, 13)},
+                "dow_pct": {
+                    "mon": 0.0,
+                    "tue": 0.0,
+                    "wed": 0.0,
+                    "thu": 0.0,
+                    "fri": 0.0,
+                    "sat": 0.0,
+                    "sun": 0.0,
                 },
-                "booking_velocity": {
-                    "enabled": True,
-                    "recent_window_days": 7,
-                    "baseline_window_days": 60,
-                    "sensitivity": 0.08,
-                    "max_discount": 0.0,
-                    "max_increase": 0.15,
-                    "min_recent_bookings": 2,
-                    "min_baseline_bookings": 3,
-                },
+                "price_adjust_pct": 0.0,
+                "far_future_window_days": 9999,
+                "far_future_discount_pct": 0.0,
+                "last_minute_window_days": 7,
+                "last_minute_discount_pct": 0.0,
+                "last_minute_threshold_occupancy_pct": 100.0,
+                "occupancy_pacing_enabled": True,
+                "occupancy_pacing_window_days": 14,
+                "occupancy_pacing_target_occupancy_pct": 25.0,
+                "occupancy_pacing_sensitivity_pct": 20.0,
+                "occupancy_pacing_max_discount_pct": 10.0,
+                "occupancy_pacing_max_increase_pct": 10.0,
+                "occupancy_pacing_min_available_nights": 5,
+                "booking_velocity_enabled": True,
+                "booking_velocity_recent_window_days": 7,
+                "booking_velocity_baseline_window_days": 60,
+                "booking_velocity_sensitivity_pct": 8.0,
+                "booking_velocity_max_discount_pct": 0.0,
+                "booking_velocity_max_increase_pct": 15.0,
+                "booking_velocity_min_recent_bookings": 2,
+                "booking_velocity_min_baseline_bookings": 3,
             },
             "external_market_data": {"enabled": False},
         }
@@ -130,6 +131,31 @@ class TestPricingEngine(unittest.TestCase):
         vel_inputs = demand.get("booking_velocity", {}).get("inputs", {})
         self.assertNotEqual(occ_inputs.get("sensitivity"), 0.99)
         self.assertNotEqual(vel_inputs.get("sensitivity"), 0.99)
+
+    def test_round_price_to_nearest_dollar_half_up(self):
+        self.assertEqual(_round_price_to_nearest_dollar(100.49), 100.0)
+        self.assertEqual(_round_price_to_nearest_dollar(100.50), 101.0)
+
+    def test_final_recommendation_is_whole_dollar(self):
+        cfg = {
+            **self.base_config,
+            "pricing_adjustments": {
+                **self.base_config["pricing_adjustments"],
+                "price_adjust_pct": 7.25,
+            },
+        }
+        result = self.engine.compute_price(
+            property_uid="prop1",
+            date="2026-06-15",
+            calendar_entry=None,
+            bookings_in_window=[],
+            config=cfg,
+        )
+        self.assertEqual(result.final_price, round(result.final_price))
+        self.assertEqual(
+            result.final_price,
+            result.all_factors.get("explanation", {}).get("final_price"),
+        )
 
 
 if __name__ == "__main__":

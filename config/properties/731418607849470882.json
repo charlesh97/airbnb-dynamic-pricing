@@ -21,18 +21,13 @@
   "min_price": 100.0,
   "max_price": 400.0,
   "quality_score": 0.85,
-  "strategy_weights": {
-    "demand": 0.35,
-    "event": 0.35,
-    "competitor": 0.0,
-    "yield": 0.3
-  },
   "availability": {
     "booking_window_days": 115,
     "min_stay": {
       "default": 2,
       "overrides": []
     },
+    "enforce_min_stay": true,
     "checkin_days": {
       "blocked": []
     },
@@ -40,33 +35,77 @@
       "blocked": []
     },
     "block_day_before": false,
-    "block_day_after": true,
-    "far_future": {
-      "window_days": 60,
-      "discount": 0.9
-    },
-    "last_minute": {
-      "window_days": 7,
-      "discount": 0.92,
-      "threshold_occupancy": 0.5
-    }
+    "block_day_after": true
   },
-  "demand_config": {
-    "demand_window_days": 14,
-    "velocity_window_days": 7,
-    "velocity_factor": 0.08,
-    "occupancy_factor": 0.3,
-    "far_future": {
-      "window_days": 60,
-      "discount": 0.9
+  "pricing_adjustments": {
+    "seasonal_months_pct": {
+      "01": 0.0,
+      "02": 0.0,
+      "03": 0.0,
+      "04": 0.0,
+      "05": 0.0,
+      "06": 0.0,
+      "07": 0.0,
+      "08": 0.0,
+      "09": 0.0,
+      "10": 0.0,
+      "11": 0.0,
+      "12": 0.0
     },
-    "last_minute": {
-      "window_days": 7,
-      "discount": 0.92,
-      "threshold_occupancy": 0.5
-    }
+    "dow_pct": {
+      "mon": 0.0,
+      "tue": 0.0,
+      "wed": 0.0,
+      "thu": 0.0,
+      "fri": 15.0,
+      "sat": 15.0,
+      "sun": 0.0
+    },
+    "price_adjust_pct": 0.0,
+    "holiday_buffer_days": 3,
+    "holiday_buffer_slope_pct": 5.0,
+    "holiday_multipliers_pct": {
+      "Christmas Day": 60.0,
+      "New Year's Day": 50.0,
+      "Independence Day": 40.0,
+      "Thanksgiving Day": 45.0,
+      "Day After Thanksgiving": 35.0,
+      "Memorial Day": 20.0,
+      "Labor Day": 20.0,
+      "Martin Luther King Jr. Day": 25.0,
+      "Presidents' Day": 25.0,
+      "Veterans Day": 15.0,
+      "Juneteenth National Independence Day": 15.0
+    },
+    "holiday_default_pct": 10.0,
+    "local_events": [
+      {
+        "name": "Soda Springs Ski Day",
+        "date": "2026-05-15",
+        "factor_pct": 10.0
+      }
+    ],
+    "far_future_window_days": 60,
+    "far_future_discount_pct": -10.0,
+    "last_minute_window_days": 7,
+    "last_minute_discount_pct": -8.0,
+    "last_minute_threshold_occupancy_pct": 50.0,
+    "occupancy_pacing_enabled": true,
+    "occupancy_pacing_window_days": 14,
+    "occupancy_pacing_target_occupancy_pct": 25.0,
+    "occupancy_pacing_sensitivity_pct": 30.0,
+    "occupancy_pacing_max_discount_pct": 10.0,
+    "occupancy_pacing_max_increase_pct": 10.0,
+    "occupancy_pacing_min_available_nights": 5,
+    "booking_velocity_enabled": true,
+    "booking_velocity_recent_window_days": 7,
+    "booking_velocity_baseline_window_days": 60,
+    "booking_velocity_sensitivity_pct": 8.0,
+    "booking_velocity_max_discount_pct": 0.0,
+    "booking_velocity_max_increase_pct": 15.0,
+    "booking_velocity_min_recent_bookings": 2,
+    "booking_velocity_min_baseline_bookings": 3
   },
-  "holiday_buffer_days": 3,
   "seasonal_base_prices": {
     "winter_peak": 325.0,
     "winter_shoulder": 275.0,
@@ -76,41 +115,7 @@
     "holiday": 450.0,
     "fallback": 250.0
   },
-  "seasonal_months": {
-    "10": 1.0,
-    "11": 1.0,
-    "12": 1.0,
-    "01": 1.0,
-    "02": 1.0,
-    "03": 1.0,
-    "04": 1.0,
-    "05": 1.0,
-    "06": 1.0,
-    "07": 1.0,
-    "08": 1.0,
-    "09": 1.0
-  },
-  "dow_multipliers": {
-    "mon": 1.0,
-    "tue": 1.0,
-    "wed": 1.0,
-    "thu": 1.0,
-    "fri": 1.15,
-    "sat": 1.15,
-    "sun": 1.0
-  },
-  "local_events": [
-    {
-      "name": "Soda Springs Ski Day",
-      "date": "2026-05-15",
-      "factor": 1.1
-    }
-  ],
-  "local_events_config": {
-    "default_factor": 1.1
-  },
   "state": "CA",
-  "holiday_buffer_slope": 0.05,
   "external_market_data": {
     "enabled": false,
     "source": null,
@@ -122,27 +127,5 @@
       "exclude_property_types": "hotel,condo,apartment"
     }
   },
-  "price_adjust": 0,
-  "pricing_adjustments": {
-    "occupancy_pacing": {
-      "enabled": true,
-      "window_days": 14,
-      "target_occupancy": 0.25,
-      "sensitivity": 0.3,
-      "max_discount": 0.1,
-      "max_increase": 0.1,
-      "min_available_nights": 5
-    },
-    "booking_velocity": {
-      "enabled": true,
-      "recent_window_days": 7,
-      "baseline_window_days": 60,
-      "sensitivity": 0.08,
-      "max_discount": 0,
-      "max_increase": 0.15,
-      "min_recent_bookings": 2,
-      "min_baseline_bookings": 3
-    }
-  },
-  "config_schema_version": 2
+  "config_schema_version": 4
 }

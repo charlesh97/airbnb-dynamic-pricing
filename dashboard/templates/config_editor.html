@@ -19,10 +19,10 @@
         Seasonality Trends
         <span class="info-tooltip">
           <span class="material-symbols-outlined">info</span>
-          <span class="tooltip-box">Monthly demand multipliers. Baseline = 1.0. Summer/winter peaks and shoulder-season dips reflect typical booking patterns for your market. Drag points to adjust.</span>
+          <span class="tooltip-box">Monthly demand adjustments in percent points. Baseline = 0%. Summer/winter peaks and shoulder-season dips reflect typical booking patterns for your market.</span>
         </span>
       </h3>
-        <p class="text-label-sm text-on-surface-variant mt-1">Drag points to adjust monthly multipliers (baseline = 1.0)</p>
+        <p class="text-label-sm text-on-surface-variant mt-1">Drag points to adjust monthly percentages (baseline = 0%)</p>
       </div>
     </div>
     <!-- Seasonal Chart — Redesigned -->
@@ -35,7 +35,7 @@
 
       <!-- Preset buttons -->
       <div class="flex flex-wrap gap-2 mt-5 mb-4 justify-center">
-        <button class="preset-btn px-3 py-1.5 rounded-full text-label-sm font-semibold border border-surface-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors" data-preset="flat">Reset Flat 1.0</button>
+        <button class="preset-btn px-3 py-1.5 rounded-full text-label-sm font-semibold border border-surface-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors" data-preset="flat">Reset 0%</button>
       </div>
 
       <!-- Summary row -->
@@ -51,8 +51,8 @@
       <!-- Selected month detail (compact inline) -->
       <div class="flex items-center gap-3 mt-4 justify-center" id="seasonal-control-row">
         <span class="text-label-sm text-on-surface font-semibold" id="seasonal-selected-month"></span>
-        <button class="preset-btn px-3 py-1.5 rounded-full text-label-sm font-semibold border border-surface-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors" data-preset="flat" id="reset-flat-btn">Reset 1.0×</button>
-        <input type="number" step="0.01" min="0.5" max="2.0" id="seasonal-value-input" value="1.00"
+        <button class="preset-btn px-3 py-1.5 rounded-full text-label-sm font-semibold border border-surface-variant text-on-surface-variant hover:border-primary hover:text-primary transition-colors" data-preset="flat" id="reset-flat-btn">Reset 0%</button>
+        <input type="text" id="seasonal-value-input" value="+0%"
                class="w-20 px-3 py-2 rounded-full border border-surface-variant text-on-surface font-price-display text-sm outline-none focus:ring-2 focus:ring-primary/20">
         <span id="seasonal-value-pct" class="text-primary font-bold text-sm"></span>
       </div>
@@ -90,33 +90,33 @@
             </span>
             <span id="price-adjust-val" class="text-primary font-bold text-sm ml-2">±0%</span>
           </label>
-          <input type="range" min="-0.30" max="0.30" step="0.01" id="price_adjust" class="w-full">
+          <input type="range" min="-30" max="30" step="1" id="price_adjust" class="w-full">
         </div>
 
     </section>
 
-    <!-- DOW Multipliers -->
+    <!-- DOW Adjustments -->
     <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
       <div class="flex items-center gap-3 mb-6">
         <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
           <span class="material-symbols-outlined">date_range</span>
         </div>
         <h3 class="text-headline-lg-mobile text-on-surface">
-          Day-of-Week Multipliers
+          Day-of-Week Adjustments
           <span class="info-tooltip">
             <span class="material-symbols-outlined">info</span>
-            <span class="tooltip-box">Weekend premium applied on top of the seasonal multiplier. 1.15 = 15% higher than a midweek night.</span>
+            <span class="tooltip-box">Signed percent adjustment by weekday. Example: +15% on Fri/Sat.</span>
           </span>
         </h3>
       </div>
       <div class="grid grid-cols-4 gap-4">
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Mon</label><input type="number" step="1" min="-50" max="100" id="dow-mon" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Tue</label><input type="number" step="1" min="-50" max="100" id="dow-tue" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Wed</label><input type="number" step="1" min="-50" max="100" id="dow-wed" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Thu</label><input type="number" step="1" min="-50" max="100" id="dow-thu" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Fri</label><input type="number" step="1" min="-50" max="100" id="dow-fri" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sat</label><input type="number" step="1" min="-50" max="100" id="dow-sat" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
-        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sun</label><input type="number" step="1" min="-50" max="100" id="dow-sun" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Mon</label><input type="text" id="dow-mon" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Tue</label><input type="text" id="dow-tue" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Wed</label><input type="text" id="dow-wed" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Thu</label><input type="text" id="dow-thu" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Fri</label><input type="text" id="dow-fri" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sat</label><input type="text" id="dow-sat" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sun</label><input type="text" id="dow-sun" placeholder="+0%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-4 text-on-surface text-sm text-center outline-none focus:ring-2 focus:ring-primary/20"></div>
       </div>
     </section>
 
@@ -137,16 +137,16 @@
       <div class="space-y-4">
         <div class="flex items-center gap-3">
           <input type="checkbox" id="occ-enabled" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
-          <label for="occ-enabled" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+          <label for="occ-enabled" class="toggle-label"></label>
           <span class="text-sm text-on-surface">Enabled</span>
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Window Days</label><input type="number" step="1" min="1" id="occ-window-days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Target Occupancy</label><input type="number" step="0.01" min="0" max="1" id="occ-target-occupancy" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sensitivity</label><input type="number" step="0.01" min="0" max="1" id="occ-sensitivity" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Target Occupancy</label><input type="text" id="occ-target-occupancy" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sensitivity</label><input type="text" id="occ-sensitivity" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
           <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Min Available Nights</label><input type="number" step="1" min="1" id="occ-min-available-nights" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Discount</label><input type="number" step="0.01" min="0" max="1" id="occ-max-discount" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Increase</label><input type="number" step="0.01" min="0" max="1" id="occ-max-increase" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Discount</label><input type="text" id="occ-max-discount" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Increase</label><input type="text" id="occ-max-increase" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
         </div>
         <div class="pt-2">
           <button type="button" id="occ-explain-btn" class="px-4 py-2 rounded-full bg-surface-container-low text-on-surface text-label-sm font-semibold hover:bg-surface-container-high transition-colors">Explain With Example</button>
@@ -172,22 +172,45 @@
       <div class="space-y-4">
         <div class="flex items-center gap-3">
           <input type="checkbox" id="vel-enabled" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
-          <label for="vel-enabled" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+          <label for="vel-enabled" class="toggle-label"></label>
           <span class="text-sm text-on-surface">Enabled</span>
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Recent Window Days</label><input type="number" step="1" min="1" id="vel-recent-window-days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
           <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Baseline Window Days</label><input type="number" step="1" min="1" id="vel-baseline-window-days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sensitivity</label><input type="number" step="0.01" min="0" max="1" id="vel-sensitivity" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Sensitivity</label><input type="text" id="vel-sensitivity" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
           <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Min Recent Bookings</label><input type="number" step="1" min="0" id="vel-min-recent-bookings" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
           <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Min Baseline Bookings</label><input type="number" step="1" min="0" id="vel-min-baseline-bookings" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Discount</label><input type="number" step="0.01" min="0" max="1" id="vel-max-discount" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Increase</label><input type="number" step="0.01" min="0" max="1" id="vel-max-increase" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Discount</label><input type="text" id="vel-max-discount" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+          <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Max Increase</label><input type="text" id="vel-max-increase" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
         </div>
         <div class="pt-2">
           <button type="button" id="vel-explain-btn" class="px-4 py-2 rounded-full bg-surface-container-low text-on-surface text-label-sm font-semibold hover:bg-surface-container-high transition-colors">Explain With Example</button>
           <pre id="vel-explain-output" class="mt-3 whitespace-pre-wrap text-xs text-on-surface-variant bg-surface-container-low rounded-xl p-3 hidden"></pre>
         </div>
+      </div>
+    </section>
+
+    <!-- Temporal Pricing -->
+    <section class="bg-surface-container-lowest rounded-[24px] shadow-[0_20px_40px_rgba(33,150,243,0.06)] p-liquid-padding">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined">schedule</span>
+        </div>
+        <h3 class="text-headline-lg-mobile text-on-surface">
+          Temporal Pricing
+          <span class="info-tooltip">
+            <span class="material-symbols-outlined">info</span>
+            <span class="tooltip-box">These are price discounts tied to lead time and occupancy, stored in pricing_adjustments.</span>
+          </span>
+        </h3>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Far Future Window (days)</label><input type="number" step="1" min="1" id="ff-window" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Far Future Discount</label><input type="text" id="ff-discount" placeholder="-10%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute Window (days)</label><input type="number" step="1" min="1" id="lm-window" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute Discount</label><input type="text" id="lm-discount" placeholder="-8%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+        <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute Occupancy Threshold</label><input type="text" id="lm-threshold-occupancy" placeholder="50%" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
       </div>
     </section>
 
@@ -209,7 +232,7 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
             <input type="checkbox" id="comp-enabled" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
-            <label for="comp-enabled" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+            <label for="comp-enabled" class="toggle-label"></label>
             <span class="text-sm text-on-surface">Enabled</span>
           </div>
           <span id="comp-enabled-pill" class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-surface-container-low text-on-surface-variant">OFF</span>
@@ -236,23 +259,23 @@
     <div class="grid grid-cols-2 gap-4">
       <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Booking Window (days)<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Blocks dates more than this many days in the future from being priced or booked. 120 days = about 4 months.</span></span></label><input type="number" step="1" min="1" id="booking_window_days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
       <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Default Min Stay<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Minimum number of nights required for a booking unless an override exists.</span></span></label><input type="number" step="1" min="1" id="min_stay_default" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Far Future Window (days)</label><input type="number" step="1" min="1" id="ff-window" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Far Future Discount</label><input type="number" step="0.01" min="0.5" max="1.5" id="ff-discount" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute Window (days)</label><input type="number" step="1" min="1" id="lm-window" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute Discount</label><input type="number" step="0.01" min="0.5" max="1.5" id="lm-discount" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Last Minute Occupancy Threshold</label><input type="number" step="0.01" min="0" max="1" id="lm-threshold-occupancy" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
+    </div>
+    <div class="mt-4 flex items-center gap-3">
+      <input type="checkbox" id="enforce_min_stay" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
+      <label for="enforce_min_stay" class="toggle-label"></label>
+      <span class="text-sm text-on-surface">Enforce min-stay runway blocking (requires consecutive nights)</span>
     </div>
     <div class="mt-4 space-y-3">
       <p class="text-label-sm text-on-surface-variant mb-2">Turn these on to hard-block the calendar day before/after any guest booking:</p>
       <div class="flex items-center gap-3">
         <input type="checkbox" id="block_day_before" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
-        <label for="block_day_before" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+        <label for="block_day_before" class="toggle-label"></label>
         <span class="text-sm text-on-surface">Block day before check-in</span>
         <span class="info-tooltip" style="margin-left:2px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Block the night before a guest arrives (keeps the day clean before arrival).</span></span>
       </div>
       <div class="flex items-center gap-3">
         <input type="checkbox" id="block_day_after" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
-        <label for="block_day_after" class="toggle-label" onclick="markDirty(); event.stopPropagation();"></label>
+        <label for="block_day_after" class="toggle-label"></label>
         <span class="text-sm text-on-surface">Block day after check-out</span>
         <span class="info-tooltip" style="margin-left:2px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Block the night after a guest leaves (clean turnaround day).</span></span>
       </div>
@@ -288,7 +311,7 @@
           </span>
           <span id="buffer-slope-val" class="text-primary font-bold text-xs">+5%</span>
         </div>
-        <input type="range" min="-0.15" max="0.15" step="0.01" id="holiday_buffer_slope" class="w-full">
+        <input type="range" min="-15" max="15" step="1" id="holiday_buffer_slope" class="w-full">
       </div>
     </div>
     <table class="w-full text-sm">
@@ -296,7 +319,7 @@
         <tr class="border-b border-surface-container-high">
           <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Name</th>
           <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Date</th>
-          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Factor</th>
+          <th class="text-left text-label-sm text-on-surface-variant pb-3 font-semibold uppercase tracking-wider">Factor (%)</th>
           <th class="w-10"></th>
         </tr>
       </thead>

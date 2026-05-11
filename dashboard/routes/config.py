@@ -25,6 +25,25 @@ LEGACY_YIELD_ONLY_KEYS = (
     "high_opportunity_factor",
 )
 
+LEGACY_SCHEMA_KEYS = (
+    "demand_config",
+    "seasonal_months",
+    "dow_multipliers",
+    "price_adjust",
+    "holiday_buffer_slope",
+    "holiday_multipliers",
+    "holiday_default_multiplier",
+    "seasonal_months_pct",
+    "dow_pct",
+    "price_adjust_pct",
+    "holiday_multipliers_pct",
+    "holiday_default_pct",
+    "holiday_buffer_slope_pct",
+    "holiday_buffer_days",
+    "local_events",
+    "local_events_config",
+)
+
 
 class ConfigPutRequest(BaseModel):
     """Validated property config for PUT."""
@@ -32,13 +51,8 @@ class ConfigPutRequest(BaseModel):
     base_price: Optional[float] = None
     min_price: Optional[float] = None
     max_price: Optional[float] = None
-    strategy_weights: Optional[dict[str, float]] = None
     pricing_adjustments: Optional[dict[str, Any]] = None
-    seasonal_months: Optional[dict[str, float]] = None
-    dow_multipliers: Optional[dict[str, float]] = None
-    demand_config: Optional[dict[str, Any]] = None
     availability: Optional[dict[str, Any]] = None
-    local_events: Optional[list[dict[str, Any]]] = None
     seasonal_base_prices: Optional[dict[str, float]] = None
 
     model_config = ConfigDict(extra="allow")
@@ -48,16 +62,6 @@ class ConfigPutRequest(BaseModel):
     def price_must_be_positive(cls, v):
         if v is not None and v < 0:
             raise ValueError("price must be non-negative")
-        return v
-
-    @field_validator("strategy_weights")
-    @classmethod
-    def weights_non_negative(cls, v):
-        if v is None:
-            return v
-        for k, val in v.items():
-            if val < 0:
-                raise ValueError(f"weight for '{k}' must be non-negative")
         return v
 
 
@@ -72,6 +76,20 @@ def _strip_legacy_yield_fields(cfg: dict[str, Any]) -> None:
     """Remove stale yield-only knobs that are no longer part of active config."""
     for key in LEGACY_YIELD_ONLY_KEYS:
         cfg.pop(key, None)
+    for key in LEGACY_SCHEMA_KEYS:
+        cfg.pop(key, None)
+
+    # Old availability pricing keys now live in pricing_adjustments.
+    availability = cfg.get("availability", {})
+    if isinstance(availability, dict):
+        availability.pop("far_future", None)
+        availability.pop("last_minute", None)
+
+    # Old grouped pricing sections are removed; canonical schema is flat keys.
+    pricing_adjustments = cfg.get("pricing_adjustments", {})
+    if isinstance(pricing_adjustments, dict):
+        pricing_adjustments.pop("occupancy_pacing", None)
+        pricing_adjustments.pop("booking_velocity", None)
 
 
 @router.get("/config/{property_uid}")

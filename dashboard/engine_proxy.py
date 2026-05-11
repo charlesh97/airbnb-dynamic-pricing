@@ -27,50 +27,15 @@ from pricing_engine.strategies.demand import get_pricing_adjustments_config
 
 logger = logging.getLogger(__name__)
 
-# ── Auto-holidays ─────────────────────────────────────────────────────────────
 
-import holidays  # noqa: E402
-
-
-def get_holiday_events(year: int, state: str = "CA") -> list[dict]:
-    """Return US federal + state holidays as local_events format."""
-    us = holidays.US(years=year)
-    events = []
-    # Try state-specific holidays (CA, VA, TX, etc.)
+def _has_effective_price_change(proposed: float | None, live: float | None) -> bool:
+    """True when proposed and live differ by at least one cent."""
+    if proposed is None or live is None:
+        return False
     try:
-        state_holidays = holidays.US(state=state, years=year)
-        combined = {**us, **state_holidays}
-    except Exception:
-        combined = {**us}
-    for d, name in combined.items():
-        mmdd = d.strftime("%m-%d")
-        events.append({
-            "name": name,
-            "date": d.strftime("%Y-%m-%d"),
-            "mm-dd": mmdd,
-            "factor": 1.10,
-            "source": "auto",
-        })
-    return events
-
-
-def _inject_auto_holidays(config: dict, year: int) -> dict:
-    """Return a deep copy of config with auto-holidays merged into local_events."""
-    cfg = copy.deepcopy(config)
-    state = config.get("state", "CA")
-    auto_events = get_holiday_events(year, state)
-    # Build key from mm-dd field, falling back to date field for existing user events
-    existing = {}
-    for e in cfg.get("local_events", []):
-        key = e.get("mm-dd") or (e.get("date", "")[5:] if e.get("date") else "")
-        if key:
-            existing[key] = e
-    for evt in auto_events:
-        if evt["mm-dd"] not in existing:
-            existing[evt["mm-dd"]] = evt
-    cfg["local_events"] = list(existing.values())
-    return cfg
-
+        return abs(round((float(proposed) - float(live)) * 100.0)) >= 1
+    except (TypeError, ValueError):
+        return False
 
 # ── PricingClient for live iGMS prices ──────────────────────────────────────
 
@@ -186,8 +151,7 @@ def compute_month(
 
     # Use the same merged config as CLI so prices match the REPL/engine directly
     env_cfg = EngineConfig.from_env(_REPO_ROOT / ".env")
-    merged = _CONFIG_STORE.merge_with_env_defaults(property_uid, env_cfg.__dict__)
-    config = _inject_auto_holidays(merged, year)
+    config = _CONFIG_STORE.merge_with_env_defaults(property_uid, env_cfg.__dict__)
     calendar_data = calendar_data or []
     # Fetch real bookings so availability rules (block day before/after, gap fill, etc.) work
     # Note: IGMS get_bookings returns bookings across ALL properties in the date range,
@@ -257,9 +221,7 @@ def _fetch_bookings_for_window(
 
     adjustments_cfg = get_pricing_adjustments_config(merged)
     occ_window_days = int(adjustments_cfg.get("occupancy_pacing", {}).get("window_days", 14) or 14)
-    last_minute_cfg = availability_cfg.get("last_minute", {}) or {}
-    if not last_minute_cfg:
-        last_minute_cfg = (merged.get("demand_config", {}) or {}).get("last_minute", {}) or {}
+    last_minute_cfg = adjustments_cfg.get("last_minute", {}) or {}
     last_minute_window_days = int(last_minute_cfg.get("window_days", 7) or 7)
     lookback_days = max(occ_window_days, last_minute_window_days, 14)
 
@@ -323,6 +285,38 @@ def _fetch_bookings_for_window(
         return []
 
 
+def _fetch_bookings_for_display_window(
+    property_uid: str,
+    from_date: str,
+    to_date: str,
+) -> list[dict[str, Any]]:
+    """Fetch bookings strictly for the requested visible window.
+
+    This is used by calendar UI span rendering. Unlike
+    ``_fetch_bookings_for_window``, it does not widen the date range because
+    wider queries can be truncated by the upstream API and hide in-month stays.
+    """
+    try:
+        client = _get_pricing_client()
+        bookings = _adapter_fetch(client, property_uid, from_date, to_date)
+        logger.info(
+            "bookings display fetch property_uid=%s window=%s–%s count=%d source=booking_adapter",
+            property_uid,
+            from_date,
+            to_date,
+            len(bookings or []),
+        )
+        return bookings or []
+    except Exception:
+        logger.exception(
+            "bookings display fetch failed property_uid=%s window=%s–%s",
+            property_uid,
+            from_date,
+            to_date,
+        )
+        return []
+
+
 def get_day_detail(
     property_uid: str,
     date: str,
@@ -334,8 +328,7 @@ def get_day_detail(
     year = int(date.split("-")[0])
     # Use the same merged config as CLI so prices match the REPL/engine directly
     env_cfg = EngineConfig.from_env(_REPO_ROOT / ".env")
-    merged = _CONFIG_STORE.merge_with_env_defaults(property_uid, env_cfg.__dict__)
-    config = _inject_auto_holidays(merged, year)
+    config = _CONFIG_STORE.merge_with_env_defaults(property_uid, env_cfg.__dict__)
     calendar_data = calendar_data or []
 
     # Fetch real bookings so availability rules can use them
@@ -435,23 +428,16 @@ def _date_price_to_dict(
     else:
         match = None
 
-    # Holiday indicator + name
-    is_holiday = False
-    holiday_name = None
-    if config:
-        date_str = dp.date
-        mmdd = date_str[5:]  # "MM-DD"
-        for evt in config.get("local_events", []):
-            if evt.get("source") == "auto" and evt.get("mm-dd") == mmdd:
-                is_holiday = True
-                holiday_name = evt.get("name")
-                break
-
     af = dp.all_factors
+    event_factors = af.get("event", {}) if isinstance(af, dict) else {}
+    is_holiday = bool(event_factors.get("is_holiday", False)) and not bool(
+        event_factors.get("holiday_buffer_applied", False)
+    )
+    holiday_name = event_factors.get("holiday_name")
 
     is_booking_window_closed = getattr(avail, "blocked_reason", None) == "booking_window_closed"
     has_live_price = current is not None and current > 0
-    has_proposed_change = has_live_price and delta is not None and abs(delta) >= 0.01
+    has_proposed_change = has_live_price and _has_effective_price_change(final, current)
     if is_booking_window_closed:
         live_price_status = "closed"
     else:
@@ -470,103 +456,43 @@ def _date_price_to_dict(
         "confidence": dp.confidence,
         "is_holiday": is_holiday,
         "holiday_name": holiday_name,
-        "holiday_proximity": af.get("event", {}).get("holiday_proximity") if af else None,
+        "holiday_proximity": {
+            "source": event_factors.get("holiday_source"),
+            "holiday_name": event_factors.get("holiday_name"),
+            "buffer_applied": event_factors.get("holiday_buffer_applied"),
+        },
         "live_price_status": live_price_status,
         "has_proposed_change": has_proposed_change,
     }
 
 
 def _build_adjustment_ladder(af: dict, base_price: float) -> list[dict]:
-    """Build adjustment ladder from stack-based explanation values."""
-    ladder: list[dict] = []
+    """Build adjustment ladder from additive explanation components."""
     ex = af.get("explanation", {}) or {}
-    ev = af.get("event", {}) or {}
-    dm = af.get("demand", {}) or {}
-    yt = af.get("yield", {}) or {}
-    co = af.get("competitor", {}) or {}
-
-    running = float(ex.get("base_price", base_price))
-    event_mult = float(ex.get("event_multiplier", ev.get("event_multiplier", 1.0)))
-    occ_mult = float(ex.get("occupancy_multiplier", dm.get("occupancy_multiplier", 1.0)))
-    vel_mult = float(ex.get("velocity_multiplier", dm.get("velocity_multiplier", 1.0)))
-    comp_mult = float(ex.get("competitor_multiplier", co.get("multiplier", 1.0)))
-    price_adjust = float(ex.get("price_adjust", 0.0))
-
-    # Event decomposition
-    seasonal_base_mult = float(ev.get("seasonal_base_multiplier", event_mult))
-    holiday_mult = float(ev.get("holiday_component_multiplier", 1.0))
-    far_future_mult = float(ev.get("far_future_multiplier", 1.0))
-    dow_mult = float(ev.get("dow_multiplier", 1.0))
-
-    last_minute_mult = float(yt.get("last_minute_adjustment", 1.0))
-    if abs(last_minute_mult) < 1e-9:
-        last_minute_mult = 1.0
-    competitor_enabled = bool(co.get("enabled", False))
-
-    def _add_multiplier_row(key: str, label: str, multiplier: float) -> None:
-        nonlocal running
-        amount = running * (multiplier - 1.0)
-        running += amount
-        ladder.append(
+    rows: list[dict] = []
+    for comp in ex.get("components", []) or []:
+        if not isinstance(comp, dict):
+            continue
+        rows.append(
             {
-                "key": key,
-                "label": label,
-                "amount": round(amount, 2),
-                "running_total_after": round(running, 2),
+                "key": str(comp.get("key", "component")),
+                "label": str(comp.get("label", comp.get("key", "Component"))),
+                "amount": round(float(comp.get("amount", 0.0) or 0.0), 2),
+                "running_total_after": round(float(comp.get("running_subtotal", base_price) or base_price), 2),
             }
         )
 
-    _add_multiplier_row("seasonality", "Seasonality", seasonal_base_mult)
-
-    holiday_label = "Holiday"
-    if ev.get("is_holiday_period"):
-        holiday_name = ev.get("holiday_name") or "Holiday"
-        if ev.get("holiday_buffer_applied"):
-            slope = float(ev.get("holiday_buffer_slope", 0.0))
-            offset = int(ev.get("holiday_buffer_day_offset", 0))
-            holiday_label = f"{holiday_name} Buffer (day {offset}, slope {slope:.2f})"
-        else:
-            holiday_label = f"{holiday_name}"
-    _add_multiplier_row("holiday", holiday_label, holiday_mult)
-
-    _add_multiplier_row("far_future", "Far Future", far_future_mult)
-    _add_multiplier_row("day_of_week", "Day of Week", dow_mult)
-
-    # Last-minute is an explicit user-facing line item.
-    _add_multiplier_row("last_minute", "Last Minute", last_minute_mult)
-
-    _add_multiplier_row("occupancy_pacing", "Occupancy Pacing", occ_mult)
-    _add_multiplier_row("booking_velocity", "Booking Velocity", vel_mult)
-
-    competitor_amt = running * (comp_mult - 1.0)
-    if competitor_enabled or abs(competitor_amt) >= 0.01:
-        running += competitor_amt
-        competitor_label = "Competitor"
-        status = str(co.get("status", "") or "")
-        if competitor_enabled and status == "no_data":
-            competitor_label = "Competitor (No Data)"
-        ladder.append(
-            {
-                "key": "competitor",
-                "label": competitor_label,
-                "amount": round(competitor_amt, 2),
-                "running_total_after": round(running, 2),
-            }
-        )
-
-    adjust_amt = running * price_adjust
+    adjust_amt = float(ex.get("price_adjust_amount", 0.0) or 0.0)
     if abs(adjust_amt) >= 0.01:
-        running += adjust_amt
-        ladder.append(
+        rows.append(
             {
                 "key": "price_adjust",
                 "label": "Global Price Adjust",
                 "amount": round(adjust_amt, 2),
-                "running_total_after": round(running, 2),
+                "running_total_after": round(float(ex.get("raw_adjusted_price", base_price) or base_price), 2),
             }
         )
-
-    return ladder
+    return rows
 
 
 def _date_price_to_detail(
@@ -597,24 +523,26 @@ def _date_price_to_detail(
         match = None
 
     af = dp.all_factors
-    af_no_yield = {k: v for k, v in af.items() if k != "yield"}
 
     # --- seasonal (from event strategy factors) ---
     ev = af.get("event", {})
-    seasonal_mult = ev.get("seasonal_multiplier", 1.0)
-    dow_mult = ev.get("dow_multiplier", 1.0)
-    seasonal_rule = ev.get("local_event_applied") and "local_event" or (
-        "seasonal" if seasonal_mult != 1.0 else "base"
-    )
-    seasonal_detail = ev.get("local_event_applied") or ""
+    seasonal_mult = float(ev.get("seasonality_multiplier", 1.0) or 1.0)
+    dow_mult = float(ev.get("dow_multiplier", 1.0) or 1.0)
+    event_mult = float(ev.get("event_multiplier", seasonal_mult * dow_mult) or (seasonal_mult * dow_mult))
+    if ev.get("local_event_applied"):
+        seasonal_rule = "local_event"
+    elif ev.get("is_holiday"):
+        seasonal_rule = "holiday"
+    elif abs(float(ev.get("seasonality_pct", 0.0) or 0.0)) >= 0.001:
+        seasonal_rule = "seasonal"
+    else:
+        seasonal_rule = "base"
+    seasonal_detail = ev.get("local_event_applied") or ev.get("holiday_name") or ""
 
     # --- demand debug ---
     dm = af.get("demand", {}) or {}
     occ_dbg = dm.get("occupancy_pacing", {}) or {}
     vel_dbg = dm.get("booking_velocity", {}) or {}
-
-    # --- strategy weights (compat output only) ---
-    weights = dp.strategy_weights
 
     # booking window days from availability config
     avail_cfg = config.get("availability", {})
@@ -642,7 +570,7 @@ def _date_price_to_detail(
 
     is_booking_window_closed = getattr(avail, "blocked_reason", None) == "booking_window_closed"
     has_live_price = current is not None and current > 0
-    has_proposed_change = has_live_price and delta is not None and abs(delta) >= 0.01
+    has_proposed_change = has_live_price and _has_effective_price_change(final, current)
     if is_booking_window_closed:
         live_price_status = "closed"
     else:
@@ -663,11 +591,11 @@ def _date_price_to_detail(
         "seasonal": {
             "rule": seasonal_rule,
             "detail": seasonal_detail,
-            "multiplier": ev.get("seasonal_multiplier", 1.0),
+            "multiplier": event_mult,
             "dow": ev.get("dow", ""),
-            "dow_multiplier": ev.get("dow_multiplier", 1.0),
-            "raw_seasonal_multiplier": ev.get("seasonal_multiplier", 1.0),
-            "effective_seasonal": round(seasonal_mult * dow_mult, 3),
+            "dow_multiplier": dow_mult,
+            "raw_seasonal_multiplier": seasonal_mult,
+            "effective_seasonal": round(event_mult, 3),
         },
         "starting_price": round(starting_price, 2),
         "demand": {
@@ -693,8 +621,12 @@ def _date_price_to_detail(
             "suggested_price": dp.strategy_prices.get("event"),
             "factors": {
                 "local_event": ev.get("local_event_applied"),
-                "event_factor": ev.get("local_event_applied"),
-                "holiday_proximity": ev.get("holiday_proximity"),
+                "event_factor": event_mult,
+                "holiday_proximity": {
+                    "source": ev.get("holiday_source"),
+                    "holiday_name": ev.get("holiday_name"),
+                    "buffer_applied": ev.get("holiday_buffer_applied"),
+                },
             },
         },
         "competitor": {
@@ -702,15 +634,10 @@ def _date_price_to_detail(
             "factors": af.get("competitor", {}),
             "note": af.get("competitor", {}).get("note", ""),
         },
-        "strategy_weights": {
-            "demand": weights.get("demand", 0),
-            "event": weights.get("event", 0),
-            "competitor": weights.get("competitor", 0),
-        },
-        "strategy_prices": {k: v for k, v in dp.strategy_prices.items() if k != "yield"},
-        "raw_factors": af_no_yield,
+        "strategy_prices": dp.strategy_prices,
+        "raw_factors": af,
         "adjustment_ladder": ladder,
-        "subtotal_before_blend": round(raw_adjusted_price, 2),
+        "subtotal_before_blend": round(float(ex.get("subtotal_before_adjust", raw_adjusted_price)), 2),
         "blend_adjustment_amount": blend_adjustment_amount,
         "was_price_capped": was_price_capped,
         "cap_type": cap_type,

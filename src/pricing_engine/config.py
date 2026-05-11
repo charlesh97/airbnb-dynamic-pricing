@@ -17,7 +17,6 @@ class PropertyOverride(BaseModel):
     min_price: float = 50.0
     max_price: float = 2000.0
     quality_score: float = 0.85
-    strategy_weights: dict[str, float] = Field(default_factory=dict)
 
 
 class EngineConfig(BaseModel):
@@ -36,16 +35,6 @@ class EngineConfig(BaseModel):
     default_min_price: float = Field(default=50.0)
     default_max_price: float = Field(default=2000.0)
     default_quality_score: float = Field(default=0.85)
-
-    # Default strategy weights
-    default_strategy_weights: dict[str, float] = Field(
-        default_factory=lambda: {
-            "demand": 0.40,
-            "event": 0.30,
-            "competitor": 0.20,
-            "yield": 0.10,
-        }
-    )
 
     property_overrides: dict[str, dict[str, Any]] = Field(default_factory=dict)
     competitor_api_key: str = Field(default="")

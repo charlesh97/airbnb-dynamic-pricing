@@ -25,9 +25,8 @@ class TestLiveAPI(unittest.TestCase):
 
     def test_calendar_read(self):
         """Calendar read confirmed working."""
-        # Uses known property uid
         cal = self.client.get_calendar(
-            "6925833560458409984",
+            "850410072530215128",
             "2026-05-04",
             "2026-05-10",
         )

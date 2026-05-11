@@ -9,12 +9,21 @@ try:
     from .client import PricingClient
 except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
     PricingClient = None  # type: ignore[assignment]
+try:
+    from .push_pipeline import (
+        PushPipelineRequest,
+        PushPipelineResult,
+        run_push_pipeline,
+    )
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    PushPipelineRequest = None  # type: ignore[assignment]
+    PushPipelineResult = None   # type: ignore[assignment]
+    run_push_pipeline = None    # type: ignore[assignment]
 from .strategies import (
     PriceRecommendation,
     PricingStrategy,
     DemandStrategy,
     EventStrategy,
-    YieldStrategy,
     CompetitorStrategy,
 )
 
@@ -28,6 +37,8 @@ __all__ = [
     "PricingStrategy",
     "DemandStrategy",
     "EventStrategy",
-    "YieldStrategy",
     "CompetitorStrategy",
+    "PushPipelineRequest",
+    "PushPipelineResult",
+    "run_push_pipeline",
 ]

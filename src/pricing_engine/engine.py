@@ -1,17 +1,18 @@
-"""Pricing engine — computes stacked pricing adjustments."""
+"""Pricing engine — computes additive component pricing."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from datetime import datetime, timedelta
 from typing import Any
 
+from .percent import multiplier_to_pct, pct_to_multiplier
 from .strategies import (
     AvailabilityResult,
     AvailabilityStrategy,
     CompetitorStrategy,
     EventStrategy,
-    YieldStrategy,
 )
 from .strategies.demand import (
     MODULE_MULTIPLIER_CEILING,
@@ -32,7 +33,6 @@ class PropertyConfig:
     min_price: float = 50.0
     max_price: float = 2000.0
     quality_score: float = 0.85
-    strategy_weights: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -43,7 +43,6 @@ class DatePrice:
     property_uid: str
     final_price: float
     strategy_prices: dict[str, float]
-    strategy_weights: dict[str, float]
     confidence: float
     all_factors: dict[str, Any]
     is_available: bool = True
@@ -68,7 +67,10 @@ def apply_manual_overrides(
 
     new_price = date_price
     if price_override is not None:
-        new_price = dataclass_replace(date_price, final_price=float(price_override))
+        new_price = dataclass_replace(
+            date_price,
+            final_price=_round_price_to_nearest_dollar(float(price_override)),
+        )
     if is_available_override is not None:
         new_price = dataclass_replace(
             new_price,
@@ -99,28 +101,18 @@ def _parse_date(value: str) -> datetime | None:
     return None
 
 
-class PricingEngine:
-    """Runs pricing strategies and computes a stacked final price."""
+def _round_price_to_nearest_dollar(value: float) -> float:
+    """Round currency to the nearest whole dollar using half-up semantics."""
+    return float(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
-    def __init__(self, default_weights: dict[str, float] | None = None) -> None:
+
+class PricingEngine:
+    """Runs pricing strategies and computes additive final price."""
+
+    def __init__(self) -> None:
         self.event_strategy = EventStrategy()
-        self.yield_strategy = YieldStrategy()
         self.competitor_strategy = CompetitorStrategy()
         self.availability_strategy = AvailabilityStrategy()
-        # Kept only for compatibility in API payloads; no longer used in pricing math.
-        self._default_weights = default_weights or {
-            "demand": 0.35,
-            "event": 0.35,
-            "competitor": 0.00,
-            "yield": 0.30,
-        }
-
-    def _normalize_weights(self, weights: dict[str, float]) -> dict[str, float]:
-        """Normalize strategy weights to sum to 1.0 (compat output only)."""
-        total = sum(weights.values())
-        if total <= 0 or total == 1.0:
-            return weights
-        return {k: round(v / total, 3) for k, v in weights.items()}
 
     def _price_bounds(
         self,
@@ -175,7 +167,6 @@ class PricingEngine:
                 bookings_in_window=bookings_in_window,
                 config=merged_config,
             )
-            # Eligible nights are those not blocked by booking-window closure.
             if getattr(avail, "blocked_reason", None) != "booking_window_closed":
                 eligible_nights += 1
             cursor += timedelta(days=1)
@@ -205,17 +196,6 @@ class PricingEngine:
                 recent += 1
         return recent, baseline
 
-    def _extract_starting_price(
-        self,
-        event_factors: dict[str, Any],
-        yield_factors: dict[str, Any],
-        merged_config: dict[str, Any],
-    ) -> tuple[float, float, float]:
-        base_price = float(event_factors.get("base_price", merged_config.get("base_price", merged_config.get("default_base_price", 200.0))))
-        event_multiplier = float(event_factors.get("seasonal_multiplier", 1.0)) * float(event_factors.get("dow_multiplier", 1.0))
-        yield_multiplier = float(yield_factors.get("final_multiplier", 1.0))
-        return base_price, event_multiplier, yield_multiplier
-
     def compute_price(
         self,
         *,
@@ -226,32 +206,13 @@ class PricingEngine:
         config: dict[str, Any],
         property_override: PropertyConfig | None = None,
     ) -> DatePrice:
-        """Compute the stacked price for a single property/date."""
+        """Compute additive component price for a single property/date."""
         props_config = config.get("property_overrides", {}).get(property_uid, {})
         prop = property_override or PropertyConfig(property_uid=property_uid, base_price=100.0)
         merged_config = {**config, **props_config}
         target = datetime.strptime(date, "%Y-%m-%d")
 
-        # Compatibility-only output: no longer used for final price math.
-        weights = (
-            property_override.strategy_weights
-            if property_override and property_override.strategy_weights
-            else props_config.get("strategy_weights")
-            if props_config.get("strategy_weights")
-            else config.get("strategy_weights")
-            if config.get("strategy_weights")
-            else self._default_weights
-        )
-        weights = self._normalize_weights(weights)
-
         event_rec = self.event_strategy.compute(
-            property_uid=property_uid,
-            date=date,
-            calendar_entry=calendar_entry,
-            bookings_in_window=bookings_in_window,
-            config=merged_config,
-        )
-        yield_rec = self.yield_strategy.compute(
             property_uid=property_uid,
             date=date,
             calendar_entry=calendar_entry,
@@ -266,12 +227,12 @@ class PricingEngine:
             config=merged_config,
         )
 
-        base_price, event_multiplier, yield_multiplier = self._extract_starting_price(
-            event_rec.factors,
-            yield_rec.factors,
-            merged_config,
+        base_price = float(
+            event_rec.factors.get(
+                "base_price",
+                merged_config.get("base_price", merged_config.get("default_base_price", 200.0)),
+            )
         )
-        starting_price = base_price * event_multiplier * yield_multiplier
 
         adjustment_cfg = get_pricing_adjustments_config(merged_config)
         occ_cfg = adjustment_cfg["occupancy_pacing"]
@@ -284,10 +245,22 @@ class PricingEngine:
             merged_config=merged_config,
             window_days=occ_cfg["window_days"],
         )
+
         occupancy_pacing = calculate_occupancy_pacing_multiplier(
             booked_nights=booked_nights,
             available_nights=available_nights,
-            **occ_cfg,
+            **{
+                k: occ_cfg[k]
+                for k in (
+                    "enabled",
+                    "window_days",
+                    "target_occupancy",
+                    "sensitivity",
+                    "max_discount",
+                    "max_increase",
+                    "min_available_nights",
+                )
+            },
         )
 
         recent_bookings, baseline_bookings = self._count_velocity_bookings(
@@ -296,10 +269,23 @@ class PricingEngine:
             recent_window_days=vel_cfg["recent_window_days"],
             baseline_window_days=vel_cfg["baseline_window_days"],
         )
+
         booking_velocity = calculate_booking_velocity_multiplier(
             recent_bookings=recent_bookings,
             baseline_bookings=baseline_bookings,
-            **vel_cfg,
+            **{
+                k: vel_cfg[k]
+                for k in (
+                    "enabled",
+                    "recent_window_days",
+                    "baseline_window_days",
+                    "sensitivity",
+                    "max_discount",
+                    "max_increase",
+                    "min_recent_bookings",
+                    "min_baseline_bookings",
+                )
+            },
         )
 
         occupancy_multiplier = clamp(
@@ -313,52 +299,190 @@ class PricingEngine:
             MODULE_MULTIPLIER_CEILING,
         )
 
-        price_after_occupancy = starting_price * occupancy_multiplier
-        price_after_velocity = price_after_occupancy * velocity_multiplier
+        seasonality_multiplier = float(event_rec.factors.get("seasonality_multiplier", 1.0))
+        holiday_multiplier = float(event_rec.factors.get("holiday_component_multiplier", 1.0))
+        far_future_multiplier = float(event_rec.factors.get("far_future_multiplier", 1.0))
+        last_minute_multiplier = float(event_rec.factors.get("last_minute_multiplier", 1.0))
+        dow_multiplier = float(event_rec.factors.get("dow_multiplier", 1.0))
+
+        pre_competitor_for_ratio = (
+            base_price
+            * seasonality_multiplier
+            * holiday_multiplier
+            * far_future_multiplier
+            * last_minute_multiplier
+            * dow_multiplier
+            * occupancy_multiplier
+            * velocity_multiplier
+        )
 
         competitor_multiplier = 1.0
-        if competitor_rec.confidence > 0 and competitor_rec.suggested_price > 0 and price_after_velocity > 0:
+        if (
+            competitor_rec.confidence > 0
+            and competitor_rec.suggested_price > 0
+            and pre_competitor_for_ratio > 0
+        ):
             competitor_multiplier = clamp(
-                competitor_rec.suggested_price / price_after_velocity,
+                competitor_rec.suggested_price / pre_competitor_for_ratio,
                 MODULE_MULTIPLIER_FLOOR,
                 MODULE_MULTIPLIER_CEILING,
             )
-        price_after_competitor = price_after_velocity * competitor_multiplier
 
-        price_adjust = float(merged_config.get("price_adjust", 0.0) or 0.0)
-        raw_adjusted_price = price_after_competitor * (1.0 + price_adjust)
+        components: list[dict[str, Any]] = []
+        running_subtotal = base_price
+
+        def add_component(
+            *,
+            key: str,
+            label: str,
+            multiplier: float,
+            reason: str = "",
+            details: dict[str, Any] | None = None,
+        ) -> None:
+            nonlocal running_subtotal
+            amount = base_price * (multiplier - 1.0)
+            running_subtotal += amount
+            components.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "multiplier": round(multiplier, 6),
+                    "pct": round(multiplier_to_pct(multiplier), 3),
+                    "amount": round(amount, 2),
+                    "running_subtotal": round(running_subtotal, 2),
+                    "reason": reason,
+                    "details": details or {},
+                }
+            )
+
+        add_component(
+            key="seasonality",
+            label="Seasonality",
+            multiplier=seasonality_multiplier,
+            reason=event_rec.factors.get("seasonal_source", ""),
+            details={"seasonality_pct": event_rec.factors.get("seasonality_pct")},
+        )
+        add_component(
+            key="holiday",
+            label="Holiday",
+            multiplier=holiday_multiplier,
+            reason=event_rec.factors.get("holiday_name") or "none",
+            details={
+                "is_holiday": event_rec.factors.get("is_holiday", False),
+                "holiday_source": event_rec.factors.get("holiday_source"),
+                "holiday_component_pct": event_rec.factors.get("holiday_component_pct", 0.0),
+            },
+        )
+        add_component(
+            key="far_future",
+            label="Far Future",
+            multiplier=far_future_multiplier,
+            reason="applied" if event_rec.factors.get("far_future_applied") else "not_applied",
+            details={
+                "window_days": event_rec.factors.get("far_future_window_days"),
+                "discount_pct": event_rec.factors.get("far_future_discount_pct"),
+            },
+        )
+        add_component(
+            key="last_minute",
+            label="Last Minute",
+            multiplier=last_minute_multiplier,
+            reason="applied" if event_rec.factors.get("last_minute_applied") else "not_applied",
+            details={
+                "window_days": event_rec.factors.get("last_minute_window_days"),
+                "discount_pct": event_rec.factors.get("last_minute_discount_pct"),
+                "threshold_occupancy_pct": event_rec.factors.get("last_minute_threshold_occupancy_pct"),
+            },
+        )
+        add_component(
+            key="day_of_week",
+            label="Day of Week",
+            multiplier=dow_multiplier,
+            reason=str(event_rec.factors.get("dow", "")),
+            details={"dow_pct": event_rec.factors.get("dow_pct")},
+        )
+
+        starting_price = running_subtotal
+
+        add_component(
+            key="occupancy_pacing",
+            label="Occupancy Pacing",
+            multiplier=occupancy_multiplier,
+            reason=occupancy_pacing.get("reason", "n/a"),
+            details=occupancy_pacing,
+        )
+        price_after_occupancy = running_subtotal
+
+        add_component(
+            key="booking_velocity",
+            label="Booking Velocity",
+            multiplier=velocity_multiplier,
+            reason=booking_velocity.get("reason", "n/a"),
+            details=booking_velocity,
+        )
+        price_after_velocity = running_subtotal
+
+        add_component(
+            key="competitor",
+            label="Competitor",
+            multiplier=competitor_multiplier,
+            reason=(competitor_rec.factors or {}).get("status", "disabled"),
+            details=competitor_rec.factors,
+        )
+        price_after_competitor = running_subtotal
+
+        subtotal_before_adjust = running_subtotal
+
+        price_adjust_pct = float(adjustment_cfg.get("price_adjust_pct", 0.0) or 0.0)
+        price_adjust_multiplier = pct_to_multiplier(price_adjust_pct)
+        price_adjust_amount = subtotal_before_adjust * (price_adjust_multiplier - 1.0)
+        raw_adjusted_price = subtotal_before_adjust + price_adjust_amount
 
         min_p, max_p = self._price_bounds(config, props_config, prop)
-        final_price = max(min_p, min(max_p, raw_adjusted_price))
+        clamped_price = max(min_p, min(max_p, raw_adjusted_price))
+        final_price = _round_price_to_nearest_dollar(clamped_price)
+
+        event_component_multipliers = [
+            seasonality_multiplier,
+            holiday_multiplier,
+            far_future_multiplier,
+            last_minute_multiplier,
+            dow_multiplier,
+        ]
+        event_multiplier = 1.0
+        for m in event_component_multipliers:
+            event_multiplier *= m
 
         demand_multiplier = occupancy_multiplier * velocity_multiplier
+
         strategy_prices = {
-            "event": round(event_rec.suggested_price, 2),
-            "yield": round(yield_rec.suggested_price, 2),
-            "demand": round(starting_price * demand_multiplier, 2),
+            "event": round(starting_price, 2),
+            "demand": round(price_after_velocity, 2),
         }
         if competitor_rec.confidence > 0:
             strategy_prices["competitor"] = round(competitor_rec.suggested_price, 2)
 
-        confidence_parts = [event_rec.confidence, yield_rec.confidence, 0.8, 0.8]
+        confidence_parts = [event_rec.confidence, 0.8, 0.8]
         if competitor_rec.confidence > 0:
             confidence_parts.append(competitor_rec.confidence)
         confidence = round(sum(confidence_parts) / len(confidence_parts), 3)
 
         all_factors: dict[str, Any] = {
-            "event": {**event_rec.factors, "event_multiplier": round(event_multiplier, 4)},
-            "yield": {**yield_rec.factors, "yield_multiplier": round(yield_multiplier, 4)},
+            "event": {
+                **event_rec.factors,
+                "event_multiplier": round(event_multiplier, 6),
+            },
             "competitor": {
                 **competitor_rec.factors,
                 "enabled": bool((merged_config.get("external_market_data") or {}).get("enabled", False)),
-                "multiplier": round(competitor_multiplier, 4),
+                "multiplier": round(competitor_multiplier, 6),
             },
             "demand": {
-                "demand_multiplier": round(demand_multiplier, 4),
+                "demand_multiplier": round(demand_multiplier, 6),
                 "occupancy_pacing": occupancy_pacing,
                 "booking_velocity": booking_velocity,
-                "occupancy_multiplier": round(occupancy_multiplier, 4),
-                "velocity_multiplier": round(velocity_multiplier, 4),
+                "occupancy_multiplier": round(occupancy_multiplier, 6),
+                "velocity_multiplier": round(velocity_multiplier, 6),
                 "booked_nights": booked_nights,
                 "available_nights": available_nights,
                 "recent_bookings": recent_bookings,
@@ -366,29 +490,28 @@ class PricingEngine:
             },
             "explanation": {
                 "base_price": round(base_price, 2),
+                "components": components,
+                "event_multiplier": round(event_multiplier, 6),
+                "demand_multiplier": round(demand_multiplier, 6),
                 "starting_price": round(starting_price, 2),
-                "event_multiplier": round(event_multiplier, 4),
-                "yield_multiplier": round(yield_multiplier, 4),
-                "occupancy_multiplier": round(occupancy_multiplier, 4),
-                "velocity_multiplier": round(velocity_multiplier, 4),
-                "competitor_multiplier": round(competitor_multiplier, 4),
-                "price_adjust": price_adjust,
                 "price_after_occupancy": round(price_after_occupancy, 2),
                 "price_after_velocity": round(price_after_velocity, 2),
                 "price_after_competitor": round(price_after_competitor, 2),
+                "subtotal_before_adjust": round(subtotal_before_adjust, 2),
+                "price_adjust_pct": round(price_adjust_pct, 3),
+                "price_adjust_amount": round(price_adjust_amount, 2),
                 "raw_adjusted_price": round(raw_adjusted_price, 2),
                 "min_price": round(min_p, 2),
                 "max_price": round(max_p, 2),
-                "final_price": round(final_price, 2),
+                "final_price": final_price,
             },
         }
 
         return DatePrice(
             date=date,
             property_uid=property_uid,
-            final_price=round(final_price, 2),
+            final_price=final_price,
             strategy_prices=strategy_prices,
-            strategy_weights={k: round(v, 3) for k, v in weights.items()},
             confidence=confidence,
             all_factors=all_factors,
         )

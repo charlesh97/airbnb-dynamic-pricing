@@ -11,6 +11,7 @@ from ..engine_proxy import (
     get_properties,
     _get_pricing_client,
     _fetch_bookings_for_window,
+    _fetch_bookings_for_display_window,
     clear_bookings_cache,
 )
 from ..models import CalendarResponse, DayResponse, IgmsSync
@@ -51,7 +52,7 @@ def _build_default_property_config(
     lng = igms_property.get("longitude", location.get("lng", 0)) or 0
 
     return {
-        "config_schema_version": 2,
+        "config_schema_version": 4,
         "property_uid": property_uid,
         "name": name,
         "platforms": ["airbnb"],
@@ -66,43 +67,52 @@ def _build_default_property_config(
         "min_price": env_cfg.default_min_price,
         "max_price": env_cfg.default_max_price,
         "quality_score": env_cfg.default_quality_score,
-        "strategy_weights": env_cfg.default_strategy_weights,
         "availability": {
             "booking_window_days": 120,
             "min_stay": {"default": 2, "overrides": []},
+            "enforce_min_stay": True,
             "checkin_days": {"blocked": []},
             "checkout_days": {"blocked": []},
             "block_day_before": False,
             "block_day_after": False,
-            "far_future": {"window_days": 60, "discount": 0.9},
-            "last_minute": {"window_days": 7, "discount": 0.92, "threshold_occupancy": 0.5},
         },
-        "seasonal_months": {f"{m:02d}": 1.0 for m in range(1, 13)},
-        "dow_multipliers": {
-            "mon": 1.0, "tue": 1.0, "wed": 1.0, "thu": 1.0, "fri": 1.1, "sat": 1.1, "sun": 1.0,
-        },
-        "local_events": [],
-        "local_events_config": {},
         "pricing_adjustments": {
-            "occupancy_pacing": {
-                "enabled": True,
-                "window_days": 14,
-                "target_occupancy": 0.25,
-                "sensitivity": 0.20,
-                "max_discount": 0.10,
-                "max_increase": 0.10,
-                "min_available_nights": 5,
+            "seasonal_months_pct": {f"{m:02d}": 0.0 for m in range(1, 13)},
+            "dow_pct": {
+                "mon": 0.0,
+                "tue": 0.0,
+                "wed": 0.0,
+                "thu": 0.0,
+                "fri": 10.0,
+                "sat": 10.0,
+                "sun": 0.0,
             },
-            "booking_velocity": {
-                "enabled": True,
-                "recent_window_days": 7,
-                "baseline_window_days": 60,
-                "sensitivity": 0.08,
-                "max_discount": 0.00,
-                "max_increase": 0.15,
-                "min_recent_bookings": 2,
-                "min_baseline_bookings": 3,
-            },
+            "price_adjust_pct": 0.0,
+            "holiday_buffer_days": 3,
+            "holiday_buffer_slope_pct": 5.0,
+            "holiday_multipliers_pct": {},
+            "holiday_default_pct": 10.0,
+            "local_events": [],
+            "far_future_window_days": 60,
+            "far_future_discount_pct": -10.0,
+            "last_minute_window_days": 7,
+            "last_minute_discount_pct": -8.0,
+            "last_minute_threshold_occupancy_pct": 50.0,
+            "occupancy_pacing_enabled": True,
+            "occupancy_pacing_window_days": 14,
+            "occupancy_pacing_target_occupancy_pct": 25.0,
+            "occupancy_pacing_sensitivity_pct": 20.0,
+            "occupancy_pacing_max_discount_pct": 10.0,
+            "occupancy_pacing_max_increase_pct": 10.0,
+            "occupancy_pacing_min_available_nights": 5,
+            "booking_velocity_enabled": True,
+            "booking_velocity_recent_window_days": 7,
+            "booking_velocity_baseline_window_days": 60,
+            "booking_velocity_sensitivity_pct": 8.0,
+            "booking_velocity_max_discount_pct": 0.0,
+            "booking_velocity_max_increase_pct": 15.0,
+            "booking_velocity_min_recent_bookings": 2,
+            "booking_velocity_min_baseline_bookings": 3,
         },
         "external_market_data": {
             "enabled": False,
@@ -114,18 +124,7 @@ def _build_default_property_config(
             "confidence": 0.0,
             "num_comps_used": 0,
         },
-        # Legacy compatibility shadow; retained during migration.
-        "demand_config": {
-            "demand_window_days": 14,
-            "velocity_window_days": 7,
-            "velocity_factor": 0.15,
-            "occupancy_factor": 0.3,
-            "far_future": {"window_days": 60, "discount": 0.9},
-            "last_minute": {"window_days": 7, "discount": 0.92, "threshold_occupancy": 0.5},
-        },
-        "holiday_buffer_days": 3,
         "state": state or "CA",
-        "holiday_buffer_slope": 0.05,
     }
 
 
@@ -208,6 +207,27 @@ def _coerce_is_available(entry: dict) -> bool | None:
     if status in {"unavailable", "blocked", "booked", "closed", "reserved"}:
         return False
     return None
+
+
+def _derive_live_blocked_reason(entry: dict) -> str:
+    """Map live iGMS unavailability metadata to dashboard blocked_reason."""
+    status = str(entry.get("status", "")).strip().lower()
+    if status in {"booked", "reserved"}:
+        return "booked"
+
+    hint_fields = (
+        entry.get("reason"),
+        entry.get("blocked_reason"),
+        entry.get("unavailable_reason"),
+        entry.get("availability_reason"),
+        entry.get("note"),
+        entry.get("source"),
+        entry.get("source_type"),
+    )
+    hint_text = " ".join(str(v).strip().lower() for v in hint_fields if v is not None and str(v).strip())
+    if any(token in hint_text for token in ("airbnb guest", "reservation", "booked", "reserved", "guest")):
+        return "booked"
+    return "igms_unavailable"
 
 
 @router.get("/properties")
@@ -328,6 +348,7 @@ async def get_calendar(
     airbnb_prices: dict[str, float] = {}
     calendar_entries: list[dict] = []
     live_is_available_by_date: dict[str, bool] = {}
+    live_blocked_reason_by_date: dict[str, str] = {}
     try:
         client = _get_pricing_client()
         raw = client.get_calendar(
@@ -349,6 +370,8 @@ async def get_calendar(
             avail = _coerce_is_available(entry)
             if avail is not None:
                 live_is_available_by_date[date] = avail
+                if avail is False:
+                    live_blocked_reason_by_date[date] = _derive_live_blocked_reason(entry)
         igms_price_count = len(airbnb_prices)
         igms_pull_success = True
         logger.info(
@@ -363,6 +386,7 @@ async def get_calendar(
         )
 
     bookings_in_window: list[dict] = []
+    bookings_for_display: list[dict] = []
     try:
         if force_refresh:
             clear_bookings_cache(property_uid)
@@ -372,7 +396,12 @@ async def get_calendar(
             to_date,
             force_refresh=force_refresh,
         )
-        igms_bookings_count = len(bookings_in_window)
+        bookings_for_display = _fetch_bookings_for_display_window(
+            property_uid,
+            from_date,
+            to_date,
+        )
+        igms_bookings_count = len(bookings_for_display)
     except Exception:
         logger.exception(
             "calendar sync bookings failed property_uid=%s month=%04d-%02d",
@@ -387,16 +416,23 @@ async def get_calendar(
         airbnb_prices=airbnb_prices,
         bookings_in_window=bookings_in_window,
     )
-    confirmed_bookings = [b for b in bookings_in_window if b.get("booking_status") in ("accepted", "confirmed")]
+    if not bookings_for_display:
+        # Fallback keeps UI functional if strict display fetch fails.
+        bookings_for_display = bookings_in_window
+    confirmed_bookings = [b for b in bookings_for_display if b.get("booking_status") in ("accepted", "confirmed")]
     booked_nights = _build_booked_nights_set(confirmed_bookings)
 
     for d in days:
         date_key = d.get("date", "")
         live_avail = live_is_available_by_date.get(d.get("date", ""))
+        live_blocked_reason = live_blocked_reason_by_date.get(date_key)
         if live_avail is False:
             d["is_available"] = False
-            if not d.get("blocked_reason"):
-                d["blocked_reason"] = "igms_unavailable"
+            if live_blocked_reason == "booked":
+                # Prefer explicit reservation blocks from iGMS calendar metadata.
+                d["blocked_reason"] = "booked"
+            elif not d.get("blocked_reason"):
+                d["blocked_reason"] = live_blocked_reason or "igms_unavailable"
             d["has_proposed_change"] = False
         if date_key in booked_nights:
             # Never propose prices on nights already booked.
