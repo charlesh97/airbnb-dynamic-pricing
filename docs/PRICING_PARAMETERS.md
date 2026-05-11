@@ -52,7 +52,7 @@ Config values flow in this precedence order (highest wins):
     "yield": 0.10
   },
   "availability": {
-    "min_stay": { "default": 2, "overrides": [] },
+    "booking_window_days": 120,
     "checkin_days": { "blocked": [] },
     "checkout_days": { "blocked": [] }
   }
@@ -230,8 +230,7 @@ Controlled by `AvailabilityStrategy` — runs separately from pricing but affect
 
 | Setting | Description |
 |---|---|
-| `min_stay.default` | Minimum nights for all dates |
-| `min_stay.overrides` | Per-DOW or per-month min-stay rules |
+| `booking_window_days` | Days out allowed for booking/pricing |
 | `checkin_days.blocked` | DOWs where checkin is blocked (e.g. `["sun", "mon"]`) |
 | `checkout_days.blocked` | DOWs where checkout is blocked |
 | `gap_handling.auto_block_gaps` | Block isolated nights between bookings |

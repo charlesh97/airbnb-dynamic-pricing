@@ -72,7 +72,6 @@ export const DayPanel = (() => {
         <div class="panel-row"><span class="label">Confidence</span><span class="value">${(d.confidence * 100).toFixed(0)}%</span></div>
         <div class="panel-row"><span class="label">Available</span><span class="value">${d.is_available ? "Yes" : "No"}</span></div>
         ${!d.is_available && d.blocked_reason ? `<div class="panel-row"><span class="label">Block Reason</span><span class="value">${d.blocked_reason}</span></div>` : ""}
-        <div class="panel-row"><span class="label">Min Stay</span><span class="value">${d.min_stay} nights</span></div>
         <div class="panel-row"><span class="label">Booking Window</span><span class="value">${d.booking_window_days} days</span></div>
       </div>
 

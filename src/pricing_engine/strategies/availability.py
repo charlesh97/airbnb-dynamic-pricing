@@ -14,12 +14,10 @@ class AvailabilityResult:
     def __init__(
         self,
         is_available: bool,
-        min_stay: int,
         blocked_reason: str | None = None,
         factors: dict[str, Any] | None = None,
     ):
         self.is_available = is_available
-        self.min_stay = min_stay
         self.blocked_reason = blocked_reason
         self.factors = factors or {}
 
@@ -41,48 +39,19 @@ class AvailabilityStrategy(PricingStrategy):
         avail_cfg = _get_avail_config(config, property_uid)
         target = datetime.strptime(date, "%Y-%m-%d")
         dow = target.strftime("%a").lower()
-        min_stay = _compute_min_stay(avail_cfg, target)
-        enforce_min_stay = bool(avail_cfg.get("enforce_min_stay", True))
-        booked_nights = _build_booked_nights_set(bookings_in_window)
 
-        base_result = _evaluate_base_rules(
+        return _evaluate_base_rules(
             target=target,
             dow=dow,
-            min_stay=min_stay,
             calendar_entry=calendar_entry,
             bookings_in_window=bookings_in_window,
             avail_cfg=avail_cfg,
         )
-        if not base_result.is_available:
-            return base_result
-
-        if enforce_min_stay:
-            has_runway, runway_factors = _has_min_stay_runway(
-                target=target,
-                min_stay=min_stay,
-                avail_cfg=avail_cfg,
-                bookings_in_window=bookings_in_window,
-                booked_nights=booked_nights,
-            )
-            if not has_runway:
-                return _blocked(min_stay, "min_stay_runway_blocked", runway_factors)
-
-        return AvailabilityResult(
-            is_available=True,
-            min_stay=min_stay,
-            blocked_reason=None,
-            factors={
-                "dow": dow,
-                "min_stay": min_stay,
-                "enforce_min_stay": enforce_min_stay,
-            },
-        )
 
 
-def _blocked(min_stay: int, reason: str, factors: dict[str, Any]) -> AvailabilityResult:
+def _blocked(reason: str, factors: dict[str, Any]) -> AvailabilityResult:
     return AvailabilityResult(
         is_available=False,
-        min_stay=min_stay,
         blocked_reason=reason,
         factors=factors,
     )
@@ -92,7 +61,6 @@ def _evaluate_base_rules(
     *,
     target: datetime,
     dow: str,
-    min_stay: int,
     calendar_entry: dict[str, Any] | None,
     bookings_in_window: list[dict[str, Any]],
     avail_cfg: dict[str, Any],
@@ -100,12 +68,12 @@ def _evaluate_base_rules(
     # 1) Blocked check-in weekdays.
     blocked_checkin = set((avail_cfg.get("checkin_days", {}) or {}).get("blocked", []) or [])
     if dow in blocked_checkin:
-        return _blocked(min_stay, f"checkin blocked on {dow}", {"blocked_checkin": True, "dow": dow})
+        return _blocked(f"checkin blocked on {dow}", {"blocked_checkin": True, "dow": dow})
 
     # 2) Blocked check-out weekdays.
     blocked_checkout = set((avail_cfg.get("checkout_days", {}) or {}).get("blocked", []) or [])
     if dow in blocked_checkout:
-        return _blocked(min_stay, f"checkout blocked on {dow}", {"blocked_checkout": True, "dow": dow})
+        return _blocked(f"checkout blocked on {dow}", {"blocked_checkout": True, "dow": dow})
 
     # 3) Same-day checkin rule.
     same_day_cfg = avail_cfg.get("same_day_checkin", {}) or {}
@@ -114,14 +82,14 @@ def _evaluate_base_rules(
             exception = same_day_cfg.get("exception", {}) or {}
             allowed_dow = set(exception.get("dow", []) or [])
             if dow not in allowed_dow:
-                return _blocked(min_stay, "same_day_checkin not allowed", {"same_day_checkin_blocked": True})
+                return _blocked("same_day_checkin not allowed", {"same_day_checkin_blocked": True})
 
     # 4) Gap handling.
     gap_cfg = avail_cfg.get("gap_handling", {}) or {}
     if bool(gap_cfg.get("auto_block_gaps", False)):
         gap = _check_gap(target, bookings_in_window, int(gap_cfg.get("min_gap_nights", 1) or 1))
         if gap.is_blocked:
-            return _blocked(min_stay, gap.reason or "isolated_gap", gap.factors)
+            return _blocked(gap.reason or "isolated_gap", gap.factors)
 
     # 5) Block day before / after bookings.
     block_before = bool(avail_cfg.get("block_day_before", False))
@@ -138,7 +106,6 @@ def _evaluate_base_rules(
                 if target == blocked_day:
                     code = booking.get("reservation_code", "?")
                     return _blocked(
-                        min_stay,
                         f"day_before_checkin_blocked ({code})",
                         {
                             "day_before_checkin_blocked": True,
@@ -149,7 +116,6 @@ def _evaluate_base_rules(
             if block_after and checkout and target == checkout:
                 code = booking.get("reservation_code", "?")
                 return _blocked(
-                    min_stay,
                     f"day_after_checkout_blocked ({code})",
                     {
                         "day_after_checkout_blocked": True,
@@ -164,7 +130,6 @@ def _evaluate_base_rules(
         days_out = (target.date() - today).days
         if days_out < 0 or days_out > int(booking_window):
             return _blocked(
-                min_stay,
                 "booking_window_closed",
                 {
                     "booking_window_days": int(booking_window),
@@ -174,56 +139,11 @@ def _evaluate_base_rules(
 
     return AvailabilityResult(
         is_available=True,
-        min_stay=min_stay,
         blocked_reason=None,
-        factors={},
+        factors={
+            "dow": dow,
+        },
     )
-
-
-def _has_min_stay_runway(
-    *,
-    target: datetime,
-    min_stay: int,
-    avail_cfg: dict[str, Any],
-    bookings_in_window: list[dict[str, Any]],
-    booked_nights: set[str],
-) -> tuple[bool, dict[str, Any]]:
-    for offset in range(min_stay):
-        cursor = target + timedelta(days=offset)
-        cursor_iso = cursor.date().isoformat()
-
-        if cursor_iso in booked_nights:
-            return False, {
-                "runway_required_nights": min_stay,
-                "runway_available_nights": offset,
-                "first_blocked_date": cursor_iso,
-                "runway_block_reason": "booked_night",
-            }
-
-        if offset == 0:
-            continue
-
-        cursor_min_stay = _compute_min_stay(avail_cfg, cursor)
-        cursor_result = _evaluate_base_rules(
-            target=cursor,
-            dow=cursor.strftime("%a").lower(),
-            min_stay=cursor_min_stay,
-            calendar_entry=None,
-            bookings_in_window=bookings_in_window,
-            avail_cfg=avail_cfg,
-        )
-        if not cursor_result.is_available:
-            return False, {
-                "runway_required_nights": min_stay,
-                "runway_available_nights": offset,
-                "first_blocked_date": cursor_iso,
-                "runway_block_reason": cursor_result.blocked_reason or "availability_rule",
-            }
-
-    return True, {
-        "runway_required_nights": min_stay,
-        "runway_available_nights": min_stay,
-    }
 
 
 def _get_avail_config(config: dict[str, Any], property_uid: str) -> dict[str, Any]:
@@ -232,25 +152,6 @@ def _get_avail_config(config: dict[str, Any], property_uid: str) -> dict[str, An
     if isinstance(props.get("availability"), dict):
         return props.get("availability", {})
     return config.get("availability", {}) or {}
-
-
-def _compute_min_stay(avail_cfg: dict[str, Any], target: datetime) -> int:
-    """Compute min stay for a given date, checking overrides in order."""
-    min_stay_cfg = avail_cfg.get("min_stay", {}) or {}
-    default = int(min_stay_cfg.get("default", 2) or 2)
-    overrides = min_stay_cfg.get("overrides", []) or []
-    dow = target.strftime("%a").lower()
-    month = target.month
-
-    for override in overrides:
-        when = override.get("when", {}) or {}
-        if "dow" in when and dow not in (when.get("dow") or []):
-            continue
-        if "months" in when and month not in (when.get("months") or []):
-            continue
-        return int(override.get("min_nights", default) or default)
-
-    return default
 
 
 class GapCheckResult:

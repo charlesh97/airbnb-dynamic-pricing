@@ -122,7 +122,7 @@ The `CompetitorStrategy` accepts `market_rates` via config. Wheelhouse can fill 
 
 ## Availability Strategy
 
-The `AvailabilityStrategy` (in `src/pricing_engine/strategies/availability.py`) evaluates whether a date is bookable and what the minimum stay requirement is.
+The `AvailabilityStrategy` (in `src/pricing_engine/strategies/availability.py`) evaluates whether a date is bookable.
 
 ### `AvailabilityResult` dataclass
 
@@ -130,7 +130,6 @@ The `AvailabilityStrategy` (in `src/pricing_engine/strategies/availability.py`) 
 @dataclass
 class AvailabilityResult:
     is_available: bool        # False if blocked
-    min_stay: int             # Minimum nights for this date
     blocked_reason: str | None
     factors: dict[str, Any]
 ```
@@ -141,20 +140,14 @@ class AvailabilityResult:
 2. **Blocked checkout days** — dates falling on a configured `checkout_days.blocked` DOW are unavailable for departure
 3. **Same-day checkin** — blocked unless `same_day_checkin.allowed: true` or DOW is in `same_day_checkin.exception.dow`
 4. **Gap nights** — if `gap_handling.auto_block_gaps: true`, isolated single nights between bookings are auto-blocked
-5. **Min stay** — computed from `min_stay.default` + `min_stay.overrides` (DOW or month conditions)
+5. **Booking window** — dates outside configured `booking_window_days` are unavailable
 
 ### Configuration (property JSON)
 
 ```json
 {
   "availability": {
-    "min_stay": {
-      "default": 2,
-      "overrides": [
-        {"when": {"dow": ["fri", "sat", "sun"]}, "min_nights": 3},
-        {"when": {"months": [7, 8]}, "min_nights": 4}
-      ]
-    },
+    "booking_window_days": 120,
     "checkin_days": {"blocked": []},
     "checkout_days": {"blocked": []},
     "same_day_checkin": {"allowed": false, "exception": {"dow": []}},
@@ -176,7 +169,6 @@ class DatePrice:
     confidence: float
     all_factors: dict[str, Any]
     is_available: bool = True        # ← new
-    min_stay: int = 2               # ← new
     blocked_reason: str | None = None  # ← new
 ```
 

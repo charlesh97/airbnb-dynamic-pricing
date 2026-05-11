@@ -169,7 +169,6 @@ def _base_day(date_str: str) -> dict:
         "price_delta_pct": 5.26,
         "match_status": "higher",
         "is_available": True,
-        "min_stay": 2,
         "blocked_reason": None,
         "confidence": 0.9,
         "is_holiday": False,

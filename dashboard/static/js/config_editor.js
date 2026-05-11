@@ -170,7 +170,6 @@ function populateAllFields(cfg) {
   // Availability
   const av = cfg.availability || {};
   setVal("booking_window_days", av.booking_window_days ?? 120);
-  setVal("min_stay_default", av.min_stay?.default ?? 2);
   setVal("ff-window", paCfg.far_future_window_days ?? 60);
   setPctInput("ff-discount", paCfg.far_future_discount_pct ?? -10, 1);
   setVal("lm-window", paCfg.last_minute_window_days ?? 7);
@@ -178,10 +177,8 @@ function populateAllFields(cfg) {
   setPctInput("lm-threshold-occupancy", paCfg.last_minute_threshold_occupancy_pct ?? 50, 1);
   const blockBefore = document.getElementById("block_day_before");
   const blockAfter = document.getElementById("block_day_after");
-  const enforceMinStay = document.getElementById("enforce_min_stay");
   if (blockBefore) blockBefore.checked = av.block_day_before ?? false;
   if (blockAfter) blockAfter.checked = av.block_day_after ?? false;
-  if (enforceMinStay) enforceMinStay.checked = av.enforce_min_stay ?? true;
 
   // Price adjustment
   const pa = document.getElementById("price_adjust");
@@ -291,8 +288,6 @@ function buildDraftConfigFromForm() {
 
   cfg.availability = cfg.availability || {};
   cfg.availability.booking_window_days = parseInt(document.getElementById("booking_window_days")?.value) || 120;
-  cfg.availability.min_stay = { default: parseInt(document.getElementById("min_stay_default")?.value) || 2, overrides: [] };
-  cfg.availability.enforce_min_stay = document.getElementById("enforce_min_stay")?.checked ?? true;
   cfg.availability.block_day_before = document.getElementById("block_day_before")?.checked ?? false;
   cfg.availability.block_day_after = document.getElementById("block_day_after")?.checked ?? false;
   delete cfg.availability.far_future;

@@ -18,12 +18,10 @@ class TestPricingEngine(unittest.TestCase):
             "max_price": 500.0,
             "availability": {
                 "booking_window_days": 120,
-                "min_stay": {"default": 2, "overrides": []},
                 "checkin_days": {"blocked": []},
                 "checkout_days": {"blocked": []},
                 "block_day_before": False,
                 "block_day_after": False,
-                "enforce_min_stay": True,
             },
             "pricing_adjustments": {
                 "seasonal_months_pct": {f"{m:02d}": 0.0 for m in range(1, 13)},

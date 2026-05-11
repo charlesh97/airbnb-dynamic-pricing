@@ -46,7 +46,6 @@ class DatePrice:
     confidence: float
     all_factors: dict[str, Any]
     is_available: bool = True
-    min_stay: int = 2
     blocked_reason: str | None = None
 
 

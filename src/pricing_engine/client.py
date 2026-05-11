@@ -18,7 +18,7 @@ class PricingClient(IGMSClient):
     """Extended IGMS client with pricing management capabilities.
 
     Write endpoints (confirmed working with calendar-control scope):
-        POST /api/v1/set-calendar-batch  — set prices + min_stay for dates
+        POST /api/v1/set-calendar-batch  — set prices for dates
         POST /api/v2/set-property-calendar-availability  — set date ranges available/unavailable
     """
 
@@ -27,9 +27,9 @@ class PricingClient(IGMSClient):
         property_uid: str,
         days: _ListDictStrAny,
     ) -> _APIResponse:
-        """Set calendar prices/min-stay for a batch of dates.
+        """Set calendar prices for a batch of dates.
 
-        Each day dict: {date: "YYYY-MM-DD", price?: float, currency?: str, min_stay?: int}
+        Each day dict: {date: "YYYY-MM-DD", price?: float, currency?: str}
         """
         payload = {
             "property_uid": property_uid,
@@ -68,7 +68,6 @@ class PricingClient(IGMSClient):
         date: str,
         price: float,
         currency: str = "USD",
-        min_stay: int | None = None,
     ) -> _APIResponse:
         """Update the nightly price for a specific date on a listing."""
         return self.set_calendar_batch(
@@ -77,7 +76,6 @@ class PricingClient(IGMSClient):
                 "date": date,
                 "price": price,
                 "currency": currency,
-                "min_stay": min_stay,
             }],
         )
 
@@ -88,7 +86,7 @@ class PricingClient(IGMSClient):
         """Bulk update prices for multiple dates.
 
         Each entry in updates should have:
-            property_uid, date, price, currency?, min_stay?
+            property_uid, date, price, currency?
 
         Groups by property_uid and calls set_calendar_batch once per property.
         """
@@ -105,26 +103,12 @@ class PricingClient(IGMSClient):
                     "date": item["date"],
                     "price": item["price"],
                     "currency": item.get("currency", "USD"),
-                    "min_stay": item.get("min_stay"),
                 }
                 for item in items
             ]
             result = self.set_calendar_batch(property_uid=pid, days=days)
             results.append(result)
         return results
-
-    def set_pricing_minimum_stay(
-        self,
-        listing_uid: str,
-        property_uid: str,
-        date: str,
-        min_stay: int,
-    ) -> _APIResponse:
-        """Set minimum stay for a specific date on a listing."""
-        return self.set_calendar_batch(
-            property_uid=property_uid,
-            days=[{"date": date, "min_stay": min_stay, "currency": "USD"}],
-        )
 
     # Compatibility wrappers: some runtime environments ship older/missing
     # igms_wrapper methods, so we expose these here unconditionally.

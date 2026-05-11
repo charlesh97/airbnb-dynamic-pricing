@@ -84,6 +84,8 @@ def _strip_legacy_yield_fields(cfg: dict[str, Any]) -> None:
     if isinstance(availability, dict):
         availability.pop("far_future", None)
         availability.pop("last_minute", None)
+        availability.pop("min_stay", None)
+        availability.pop("enforce_min_stay", None)
 
     # Old grouped pricing sections are removed; canonical schema is flat keys.
     pricing_adjustments = cfg.get("pricing_adjustments", {})

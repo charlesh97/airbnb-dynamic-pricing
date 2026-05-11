@@ -252,18 +252,12 @@
         Availability
         <span class="info-tooltip">
           <span class="material-symbols-outlined">info</span>
-          <span class="tooltip-box">Booking window limits how far ahead dates can be priced. Min stay sets default night requirements.</span>
+          <span class="tooltip-box">Booking window limits how far ahead dates can be priced and booked.</span>
         </span>
       </h3>
     </div>
     <div class="grid grid-cols-2 gap-4">
       <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Booking Window (days)<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Blocks dates more than this many days in the future from being priced or booked. 120 days = about 4 months.</span></span></label><input type="number" step="1" min="1" id="booking_window_days" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-      <div class="field"><label class="text-label-sm text-on-surface-variant mb-2 block">Default Min Stay<span class="info-tooltip" style="margin-left:4px"><span class="material-symbols-outlined" style="font-size:12px;color:#707883">info</span><span class="tooltip-box">Minimum number of nights required for a booking unless an override exists.</span></span></label><input type="number" step="1" min="1" id="min_stay_default" class="w-full bg-surface-container-low border-none rounded-full py-2 px-5 text-on-surface text-sm outline-none focus:ring-2 focus:ring-primary/20"></div>
-    </div>
-    <div class="mt-4 flex items-center gap-3">
-      <input type="checkbox" id="enforce_min_stay" class="toggle-checkbox" style="position:absolute;opacity:0;width:0;height:0;">
-      <label for="enforce_min_stay" class="toggle-label"></label>
-      <span class="text-sm text-on-surface">Enforce min-stay runway blocking (requires consecutive nights)</span>
     </div>
     <div class="mt-4 space-y-3">
       <p class="text-label-sm text-on-surface-variant mb-2">Turn these on to hard-block the calendar day before/after any guest booking:</p>

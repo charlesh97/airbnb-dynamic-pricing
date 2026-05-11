@@ -504,7 +504,6 @@ def cmd_run_config(args: argparse.Namespace) -> None:
     table.add_column("Price")
     table.add_column("Confidence")
     table.add_column("Avail")
-    table.add_column("Min Stay")
     table.add_column("Blocked")
 
     for dp in prices:
@@ -515,7 +514,6 @@ def cmd_run_config(args: argparse.Namespace) -> None:
             f"${dp.final_price:.2f}",
             f"{dp.confidence:.0%}",
             avail_sym,
-            str(dp.min_stay),
             blocked[:30],
         )
 
@@ -555,7 +553,6 @@ def cmd_availability(args: argparse.Namespace) -> None:
     table = Table(show_header=True)
     table.add_column("Date")
     table.add_column("Available")
-    table.add_column("Min Stay")
     table.add_column("Blocked Reason")
 
     blocked_dates = []
@@ -571,7 +568,7 @@ def cmd_availability(args: argparse.Namespace) -> None:
         avail_sym = "[green]✓[/green]" if avail.is_available else "[red]✗[/red]"
         if not avail.is_available:
             blocked_dates.append((date, avail.blocked_reason or "unknown"))
-        table.add_row(date, avail_sym, str(avail.min_stay), avail.blocked_reason or "")
+        table.add_row(date, avail_sym, avail.blocked_reason or "")
 
     console.print(f"\n[bold cyan]{args.property}[/bold cyan] availability ({from_date} → {to_date})")
     console.print(table)

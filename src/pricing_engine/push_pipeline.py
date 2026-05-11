@@ -114,21 +114,8 @@ def _coerce_price(value: Any) -> float | None:
     return parsed
 
 
-def _coerce_min_stay(value: Any) -> int | None:
-    """Return an integer min-stay value, else ``None``."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(parsed) or not parsed.is_integer():
-        return None
-    return int(parsed)
-
-
 def _build_live_day_map(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Build ``{date: {price, min_stay, is_available}}`` from iGMS entries."""
+    """Build ``{date: {price, is_available}}`` from iGMS entries."""
     result: dict[str, dict[str, Any]] = {}
     for entry in entries:
         date_str = entry.get("date", "")
@@ -136,7 +123,6 @@ def _build_live_day_map(entries: list[dict[str, Any]]) -> dict[str, dict[str, An
             continue
         result[date_str] = {
             "price": _coerce_price(entry.get("price")),
-            "min_stay": _coerce_min_stay(entry.get("min_stay")),
             "is_available": _coerce_is_available(entry),
         }
     return result

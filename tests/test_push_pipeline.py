@@ -71,22 +71,19 @@ def _make_merged_config(booking_window_days=120, base_price=150.0):
         },
         "availability": {
             "booking_window_days": booking_window_days,
-            "min_stay": {"default": 2},
             "checkin_days": {"blocked": []},
             "checkout_days": {"blocked": []},
             "block_day_before": False,
             "block_day_after": False,
-            "enforce_min_stay": True,
         },
         "config_schema_version": 4,
     }
 
 
-def _make_calendar_entry(date_str, price=150.0, min_stay=2, is_available=True):
+def _make_calendar_entry(date_str, price=150.0, is_available=True):
     return {
         "date": date_str,
         "price": price,
-        "min_stay": min_stay,
         "is_available": is_available,
         "listing_uid": "lst_001",
         "listing_name": "Test Listing",
@@ -165,12 +162,11 @@ class TestParseDate(unittest.TestCase):
 class TestBuildLiveDayMap(unittest.TestCase):
     def test_builds_map(self):
         entries = [
-            {"date": "2026-06-01", "price": 100, "min_stay": 2, "is_available": True},
-            {"date": "2026-06-02", "price": 120, "min_stay": 3, "is_available": False},
+            {"date": "2026-06-01", "price": 100, "is_available": True},
+            {"date": "2026-06-02", "price": 120, "is_available": False},
         ]
         result = _build_live_day_map(entries)
         self.assertEqual(result["2026-06-01"]["price"], 100)
-        self.assertEqual(result["2026-06-01"]["min_stay"], 2)
         self.assertTrue(result["2026-06-01"]["is_available"])
         self.assertEqual(result["2026-06-02"]["price"], 120)
         self.assertFalse(result["2026-06-02"]["is_available"])
@@ -182,20 +178,18 @@ class TestBuildLiveDayMap(unittest.TestCase):
 
     def test_coerces_string_numeric_fields(self):
         entries = [
-            {"date": "2026-06-01", "price": "150.0", "min_stay": "3", "is_available": "true"},
+            {"date": "2026-06-01", "price": "150.0", "is_available": "true"},
         ]
         result = _build_live_day_map(entries)
         self.assertEqual(result["2026-06-01"]["price"], 150.0)
-        self.assertEqual(result["2026-06-01"]["min_stay"], 3)
         self.assertTrue(result["2026-06-01"]["is_available"])
 
     def test_invalid_numeric_fields_become_none(self):
         entries = [
-            {"date": "2026-06-01", "price": "nope", "min_stay": "nan", "is_available": True},
+            {"date": "2026-06-01", "price": "nope", "is_available": True},
         ]
         result = _build_live_day_map(entries)
         self.assertIsNone(result["2026-06-01"]["price"])
-        self.assertIsNone(result["2026-06-01"]["min_stay"])
 
 
 class TestBuildBookedNightsSet(unittest.TestCase):
@@ -357,7 +351,6 @@ class TestPushPipeline(unittest.TestCase):
         t = _today()
         today_str = t.isoformat()
         config = _make_merged_config(booking_window_days=1)
-        config["availability"]["enforce_min_stay"] = False
         mock_store = MagicMock()
         mock_store.merge_with_env_defaults.return_value = config
         mock_store_cls.return_value = mock_store
@@ -370,7 +363,7 @@ class TestPushPipeline(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.access_token = "fake-token"
         mock_client.get_calendar.return_value = [
-            _make_calendar_entry(today_str, price=150.0, min_stay=2)
+            _make_calendar_entry(today_str, price=150.0)
         ]
         mock_pc_cls.return_value = mock_client
         mock_fetch_bk.return_value = []
@@ -392,7 +385,6 @@ class TestPushPipeline(unittest.TestCase):
             mock_engine.compute_range.return_value = [mock_dp]
             mock_engine.compute_availability.return_value = MagicMock(
                 is_available=True,
-                min_stay=2,
                 blocked_reason=None,
             )
 
@@ -426,7 +418,7 @@ class TestPushPipeline(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.access_token = "fake-token"
         mock_client.get_calendar.return_value = [
-            _make_calendar_entry(today_str, price=100.0, min_stay=2)
+            _make_calendar_entry(today_str, price=100.0)
         ]
         mock_result = MagicMock()
         mock_result.status_code = 200
@@ -450,7 +442,6 @@ class TestPushPipeline(unittest.TestCase):
             mock_engine.compute_range.return_value = [mock_dp]
             mock_engine.compute_availability.return_value = MagicMock(
                 is_available=True,
-                min_stay=2,
                 blocked_reason=None,
             )
 
@@ -484,7 +475,7 @@ class TestPushPipeline(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.access_token = "fake-token"
         mock_client.get_calendar.return_value = [
-            _make_calendar_entry(today_str, price="100.0", min_stay=2)
+            _make_calendar_entry(today_str, price="100.0")
         ]
         mock_result = MagicMock()
         mock_result.status_code = 200
@@ -508,7 +499,6 @@ class TestPushPipeline(unittest.TestCase):
             mock_engine.compute_range.return_value = [mock_dp]
             mock_engine.compute_availability.return_value = MagicMock(
                 is_available=True,
-                min_stay=2,
                 blocked_reason=None,
             )
 
@@ -548,7 +538,6 @@ class TestPushPipeline(unittest.TestCase):
             {
                 "date": today_str,
                 "price": 150.0,
-                "min_stay": 3,
             }
         ]
         mock_batch_result = MagicMock()
@@ -576,8 +565,7 @@ class TestPushPipeline(unittest.TestCase):
             mock_engine.compute_range.return_value = [mock_dp]
             mock_engine.compute_availability.return_value = MagicMock(
                 is_available=False,
-                min_stay=2,
-                blocked_reason="min_stay_runway_blocked",
+                blocked_reason="day_before_checkin_blocked",
             )
 
             result = run_push_pipeline(PushPipelineRequest(property_uid="test-prop"))
@@ -610,7 +598,7 @@ class TestPushPipeline(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.access_token = "fake-token"
         mock_client.get_calendar.return_value = [
-            _make_calendar_entry(today_str, price=100.0, min_stay=2)
+            _make_calendar_entry(today_str, price=100.0)
         ]
         mock_pc_cls.return_value = mock_client
         mock_fetch_bk.return_value = []
@@ -670,8 +658,7 @@ class TestPushPipeline(unittest.TestCase):
             ]
             mock_engine.compute_availability.return_value = MagicMock(
                 is_available=False,
-                min_stay=2,
-                blocked_reason="min_stay_runway_blocked",
+                blocked_reason="day_before_checkin_blocked",
             )
 
             result = run_push_pipeline(PushPipelineRequest(property_uid="test-prop"))
@@ -702,7 +689,7 @@ class TestPushPipeline(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.access_token = "fake-token"
         mock_client.get_calendar.return_value = [
-            _make_calendar_entry(today_str, price=100.0, min_stay=2)
+            _make_calendar_entry(today_str, price=100.0)
         ]
         mock_result = MagicMock()
         mock_result.status_code = 500
@@ -738,7 +725,7 @@ class TestPushPipeline(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.access_token = "fake-token"
         mock_client.get_calendar.return_value = [
-            _make_calendar_entry(today_str, price=100.0, min_stay=2)
+            _make_calendar_entry(today_str, price=100.0)
         ]
         mock_client.set_calendar_batch.side_effect = Exception("timeout")
         mock_pc_cls.return_value = mock_client

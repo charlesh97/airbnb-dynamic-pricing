@@ -90,7 +90,6 @@ def test_date_price_to_dict_marks_only_exact_holiday_day():
     )
     avail = MagicMock()
     avail.is_available = True
-    avail.min_stay = 2
     avail.blocked_reason = None
 
     out_buffer = _date_price_to_dict(dp_buffer, 120.0, avail, {})
@@ -108,7 +107,6 @@ def test_date_price_to_dict_marks_only_exact_holiday_day():
 def test_date_price_to_dict_uses_cent_threshold_for_has_proposed_change():
     avail = MagicMock()
     avail.is_available = True
-    avail.min_stay = 2
     avail.blocked_reason = None
 
     dp_no_change = DatePrice(

@@ -67,19 +67,12 @@ function hasEffectiveChange(proposedPrice, livePrice) {
   return Math.abs(Math.round((proposedPrice - livePrice) * 100)) >= 1;
 }
 
-function formatBlockedReason(reason, minStay = null) {
+function formatBlockedReason(reason) {
   const blockedReason = String(reason || "").trim();
   if (!blockedReason) return "";
 
   if (blockedReason === "igms_unavailable") {
     return "Unavailable due to iGMS blocked";
-  }
-  if (blockedReason === "min_stay_runway_blocked") {
-    const stay = Number(minStay);
-    if (Number.isFinite(stay) && stay > 0) {
-      return `Unavailable due to minimum ${stay}-night stay required`;
-    }
-    return "Unavailable due to minimum night stay required";
   }
   if (blockedReason === "booked") return "Unavailable due to booked dates";
   if (blockedReason === "booking_window_closed") return "Outside booking window";
@@ -600,7 +593,7 @@ function renderDayDetailPopup(detail, currentPrice, initialBlockedReason = null)
     : false;
   const hasProposedChange = !isUnavailable && effectiveProposedChange;
   if (popupProp) popupProp.textContent = isUnavailable
-    ? formatBlockedReason(effectiveBlockedReason, detail.min_stay)
+    ? formatBlockedReason(effectiveBlockedReason)
     : "";
 
   const ladder = detail.adjustment_ladder || [];
@@ -700,7 +693,7 @@ function renderDayDetailPopup(detail, currentPrice, initialBlockedReason = null)
   }
 
   const isBookingWindowClosed = detail.blocked_reason === "booking_window_closed";
-  const unavailableHeader = formatBlockedReason(effectiveBlockedReason, detail.min_stay) || "Unavailable";
+  const unavailableHeader = formatBlockedReason(effectiveBlockedReason) || "Unavailable";
   const proposedHeader = isUnavailable
     ? `<div class="popup-proposed-header"><span class="popup-proposed-price">${unavailableHeader}</span></div>`
     : isBookingWindowClosed

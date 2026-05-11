@@ -23,11 +23,6 @@
   "quality_score": 0.85,
   "availability": {
     "booking_window_days": 115,
-    "min_stay": {
-      "default": 2,
-      "overrides": []
-    },
-    "enforce_min_stay": true,
     "checkin_days": {
       "blocked": []
     },

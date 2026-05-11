@@ -27,7 +27,6 @@ class DayResponse(BaseModel):
     price_delta_pct: Optional[float]
     match_status: Optional[str]
     is_available: bool
-    min_stay: int
     blocked_reason: Optional[str]
     confidence: float
     is_holiday: bool = False
@@ -85,7 +84,6 @@ class DayDetailResponse(BaseModel):
     current_airbnb_price: Optional[float]
     confidence: float
     is_available: bool
-    min_stay: int
     blocked_reason: Optional[str]
     booking_window_days: int
     match_status: Optional[str]

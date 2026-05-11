@@ -69,8 +69,6 @@ def _build_default_property_config(
         "quality_score": env_cfg.default_quality_score,
         "availability": {
             "booking_window_days": 120,
-            "min_stay": {"default": 2, "overrides": []},
-            "enforce_min_stay": True,
             "checkin_days": {"blocked": []},
             "checkout_days": {"blocked": []},
             "block_day_before": False,
