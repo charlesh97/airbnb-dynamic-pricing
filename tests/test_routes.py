@@ -11,12 +11,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dashboard.routes.calendar import router
 from dashboard.routes.push import router as push_router
+from dashboard.main import app as dashboard_app
 from fastapi import FastAPI
 
 app = FastAPI()
 app.include_router(router)
 app.include_router(push_router)
 client = TestClient(app)
+dashboard_client = TestClient(dashboard_app)
 
 
 class TempConfigDir:
@@ -256,3 +258,60 @@ def test_calendar_uses_strict_display_bookings_for_spans():
     assert spans[0]["reservation_code"] == "HMR32KZ2ZR"
     assert spans[0]["checkin"] == "2026-06-17"
     assert spans[0]["checkout"] == "2026-06-28"
+
+
+def test_calendar_marks_booked_when_display_bookings_miss_date_but_widened_fetch_has_it():
+    """Booked-night suppression should use widened pricing fetch, not display spans alone."""
+    date_str = "2026-06-17"
+    mock_client = MagicMock()
+    mock_client.get_calendar.return_value = [{"date": date_str, "price": 207, "status": "available"}]
+    widened_rows = [{
+        "booking_status": "accepted",
+        "checkin": "2026-06-17",
+        "checkout": "2026-06-20",
+        "reservation_code": "BOOKED-IN-WIDENED",
+        "guest_name": "",
+    }]
+    strict_rows = [{
+        "booking_status": "accepted",
+        "checkin": "2026-06-28",
+        "checkout": "2026-07-07",
+        "reservation_code": "OTHER-STAY",
+        "guest_name": "",
+    }]
+
+    with patch("dashboard.routes.calendar._get_pricing_client", return_value=mock_client):
+        with patch("dashboard.routes.calendar.compute_month", return_value=[_base_day(date_str)]):
+            with patch("dashboard.routes.calendar._fetch_bookings_for_window", return_value=widened_rows):
+                with patch("dashboard.routes.calendar._fetch_bookings_for_display_window", return_value=strict_rows):
+                    response = client.get(f"/api/calendar/2026/6?property_uid=test-prop")
+
+    assert response.status_code == 200
+    day = response.json()["days"][0]
+    assert day["is_available"] is False
+    assert day["blocked_reason"] == "booked"
+    assert day["has_proposed_change"] is False
+
+
+def test_calendar_page_renders(monkeypatch):
+    """GET /calendar renders successfully."""
+    monkeypatch.setattr(
+        "dashboard.main.get_properties",
+        lambda: [{"property_uid": "test-prop", "name": "Test Property"}],
+    )
+
+    response = dashboard_client.get("/calendar")
+
+    assert response.status_code == 200
+
+
+def test_config_editor_page_renders(monkeypatch):
+    """GET /config-editor renders successfully."""
+    monkeypatch.setattr(
+        "dashboard.main.get_properties",
+        lambda: [{"property_uid": "test-prop", "name": "Test Property"}],
+    )
+
+    response = dashboard_client.get("/config-editor")
+
+    assert response.status_code == 200

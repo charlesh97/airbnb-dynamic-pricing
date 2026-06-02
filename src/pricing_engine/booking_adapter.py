@@ -38,6 +38,23 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _pagination_next_page(response: dict[str, Any], current_page: int) -> int | None:
+    """Return the next page number from iGMS bookings response metadata."""
+    direct_next = response.get("next_page")
+    if isinstance(direct_next, int) and direct_next > current_page:
+        return direct_next
+
+    meta = response.get("meta")
+    if isinstance(meta, dict):
+        meta_next = meta.get("next_page")
+        if isinstance(meta_next, int) and meta_next > current_page:
+            return meta_next
+        if bool(meta.get("has_next_page")):
+            return current_page + 1
+
+    return None
+
+
 def fetch_bookings_for_window(
     client: Any,
     property_uid: str,
@@ -80,20 +97,22 @@ def fetch_bookings_for_window(
         return []
 
     # Normalize paginated response to list
-    pages = [response]
     if isinstance(response, dict):
-        data = response.get("data", response.get("bookings", []))
-        # If next page token present, collect remaining pages
-        if response.get("next_page"):
+        data = list(response.get("data", response.get("bookings", [])) or [])
+        next_page = _pagination_next_page(response, current_page=1)
+        while next_page is not None:
             try:
-                more = client.get_bookings(page=2, **params)
-                while more and isinstance(more, dict):
-                    data.extend(more.get("data", more.get("bookings", [])))
-                    if not more.get("next_page"):
-                        break
-                    more = client.get_bookings(page=more["next_page"], **params)
+                more = client.get_bookings(page=next_page, **params)
             except Exception as exc2:
                 logger.warning("get_bookings pagination failed: %s", exc2)
+                break
+            if not isinstance(more, dict):
+                break
+            page_rows = more.get("data", more.get("bookings", []))
+            if isinstance(page_rows, list):
+                data.extend(page_rows)
+            current_page = next_page
+            next_page = _pagination_next_page(more, current_page=current_page)
 
         bookings = data if isinstance(data, list) else []
     elif isinstance(response, list):

@@ -418,7 +418,10 @@ async def get_calendar(
         # Fallback keeps UI functional if strict display fetch fails.
         bookings_for_display = bookings_in_window
     confirmed_bookings = [b for b in bookings_for_display if b.get("booking_status") in ("accepted", "confirmed")]
-    booked_nights = _build_booked_nights_set(confirmed_bookings)
+    confirmed_bookings_for_pricing = [
+        b for b in bookings_in_window if b.get("booking_status") in ("accepted", "confirmed")
+    ]
+    booked_nights = _build_booked_nights_set(confirmed_bookings_for_pricing)
 
     for d in days:
         date_key = d.get("date", "")

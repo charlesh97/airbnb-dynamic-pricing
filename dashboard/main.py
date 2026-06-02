@@ -86,8 +86,9 @@ def _get_current_uid(request: Request) -> str:
 async def calendar_page(request: Request):
     """Calendar view page."""
     return templates.TemplateResponse(
+        request,
         "calendar.html",
-        {"request": request, "properties": get_properties(), "current_uid": _get_current_uid(request)},
+        {"properties": get_properties(), "current_uid": _get_current_uid(request)},
     )
 
 
@@ -95,6 +96,7 @@ async def calendar_page(request: Request):
 async def config_page(request: Request):
     """Config editor page."""
     return templates.TemplateResponse(
+        request,
         "config_editor.html",
-        {"request": request, "properties": get_properties(), "current_uid": _get_current_uid(request)},
+        {"properties": get_properties(), "current_uid": _get_current_uid(request)},
     )

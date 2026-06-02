@@ -17,8 +17,8 @@
   "sleeps": 6,
   "latitude": 39.323,
   "longitude": -120.444,
-  "base_price": 250.0,
-  "min_price": 120.0,
+  "base_price": 240.0,
+  "min_price": 170.0,
   "max_price": 500.0,
   "quality_score": 0.85,
   "availability": {
@@ -34,30 +34,30 @@
   },
   "pricing_adjustments": {
     "seasonal_months_pct": {
+      "10": -5,
+      "11": -5.3,
+      "12": 20,
       "01": 25,
       "02": 20,
       "03": 15,
       "04": 0,
       "05": 0,
       "06": 10,
-      "07": 15,
-      "08": 15,
-      "09": 5,
-      "10": -5,
-      "11": 0,
-      "12": 20
+      "07": 9.9,
+      "08": 9.5,
+      "09": 5
     },
     "dow_pct": {
       "mon": 0,
       "tue": 0,
       "wed": 0,
       "thu": 0,
-      "fri": 20,
-      "sat": 20,
+      "fri": 10,
+      "sat": 10,
       "sun": 0
     },
     "price_adjust_pct": 0,
-    "holiday_buffer_days": 3,
+    "holiday_buffer_days": 2,
     "holiday_buffer_slope_pct": 5,
     "holiday_multipliers_pct": {
       "Christmas Day": 60,
@@ -75,46 +75,29 @@
     "holiday_default_pct": 10,
     "local_events": [
       {
-        "name": "Tahoe City Food & Wine Classic",
-        "date": "06-05",
-        "factor_pct": 8,
-        "buffer_days": 1,
-        "buffer_slope_pct": 5
-      },
-      {
         "name": "Big Blue Half Marathon",
         "date": "06-12",
-        "factor_pct": 8,
-        "buffer_days": 1,
-        "buffer_slope_pct": 5
+        "factor_pct": 5
       },
       {
         "name": "Truckee 4th of July (America's 250th)",
         "date": "07-04",
-        "factor_pct": 12,
-        "buffer_days": 2,
-        "buffer_slope_pct": 5
+        "factor_pct": 12
       },
       {
         "name": "Gambler's Run Music Festival",
         "date": "07-23",
-        "factor_pct": 10,
-        "buffer_days": 2,
-        "buffer_slope_pct": 5
+        "factor_pct": 5
       },
       {
         "name": "Donner Lake Triathlon",
         "date": "07-25",
-        "factor_pct": 12,
-        "buffer_days": 1,
-        "buffer_slope_pct": 5
+        "factor_pct": 5
       },
       {
         "name": "Brews Jazz & Funk Fest",
         "date": "08-16",
-        "factor_pct": 8,
-        "buffer_days": 1,
-        "buffer_slope_pct": 5
+        "factor_pct": 3
       }
     ],
     "far_future_window_days": 45,
@@ -129,11 +112,11 @@
     "occupancy_pacing_max_discount_pct": 10,
     "occupancy_pacing_max_increase_pct": 10,
     "occupancy_pacing_min_available_nights": 5,
-    "booking_velocity_enabled": true,
+    "booking_velocity_enabled": false,
     "booking_velocity_recent_window_days": 7,
     "booking_velocity_baseline_window_days": 60,
     "booking_velocity_sensitivity_pct": 8,
-    "booking_velocity_max_discount_pct": 5,
+    "booking_velocity_max_discount_pct": 15,
     "booking_velocity_max_increase_pct": 15,
     "booking_velocity_min_recent_bookings": 2,
     "booking_velocity_min_baseline_bookings": 3
