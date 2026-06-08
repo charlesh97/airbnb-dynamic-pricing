@@ -85,6 +85,11 @@
         "factor_pct": 12
       },
       {
+        "name": "Big Blue Tahoe 100 Mountain Bike Race — Northstar (13 min)",
+        "date": "07-18",
+        "factor_pct": 5
+      },
+      {
         "name": "Gambler's Run Music Festival",
         "date": "07-23",
         "factor_pct": 5
@@ -97,6 +102,16 @@
       {
         "name": "Brews Jazz & Funk Fest",
         "date": "08-16",
+        "factor_pct": 3
+      },
+      {
+        "name": "Tahoe Film Festival — Truckee (12 min)",
+        "date": "08-15",
+        "factor_pct": 3
+      },
+      {
+        "name": "Tahoe Harvest Fair — Truckee (12 min)",
+        "date": "10-15",
         "factor_pct": 3
       }
     ],
