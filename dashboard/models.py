@@ -45,8 +45,8 @@ class IgmsSync(BaseModel):
     igms_pull_success: bool = False
     igms_price_count: int = 0
     igms_bookings_count: int = 0
-    igms_error: str | None = None
-    pulled_at: str | None = None
+    igms_error: Optional[str] = None
+    pulled_at: Optional[str] = None
 
 
 class BookingSpan(BaseModel):
@@ -66,7 +66,7 @@ class CalendarResponse(BaseModel):
     month: int
     property_uid: str
     days: List[DayResponse]
-    sync: IgmsSync | None = None
+    sync: Optional[IgmsSync] = None
     bookings: List[BookingSpan] = Field(default_factory=list)
 
 
