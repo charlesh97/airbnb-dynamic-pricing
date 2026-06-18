@@ -545,6 +545,7 @@ def cmd_availability(args: argparse.Namespace) -> None:
     to_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
     client = PricingClient.from_env()
+    bookings = _fetch_bookings_cached(client, args.property, from_date, to_date)
     try:
         calendar = client.get_calendar(args.property, from_date, to_date)
     except Exception:
