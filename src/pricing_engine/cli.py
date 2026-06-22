@@ -549,6 +549,7 @@ def cmd_availability(args: argparse.Namespace) -> None:
         calendar = client.get_calendar(args.property, from_date, to_date)
     except Exception:
         calendar = {"data": []}
+    bookings = _fetch_bookings_cached(client, args.property, from_date, to_date)
 
     table = Table(show_header=True)
     table.add_column("Date")
