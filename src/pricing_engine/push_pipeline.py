@@ -319,7 +319,6 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
 
     # 8. Diff + build push payloads
     calendar_batch: list[dict[str, Any]] = []
-    availability_block_dates: list[str] = []
     price_count = 0
     availability_count = 0
     skipped_booked = 0
@@ -428,8 +427,15 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
                 round(price_diff, 2),
             )
         if should_block_availability:
-            availability_block_dates.append(date_str)
             availability_count += 1
+            # Push block via set_calendar_batch (set_property_availability v2
+            # endpoint requires a scope our token doesn't have — it returns
+            # HTTP 200 with error code 14 silently).
+            calendar_batch.append({
+                "date": date_str,
+                "currency": "USD",
+                "is_available": False,
+            })
             logger.debug(
                 "BLOCK %s: live_availability=%s reason=%s",
                 date_str,
@@ -474,12 +480,16 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
             warnings=warnings,
         )
 
-    # 10. Push
+    # 10. Push (calendar_batch now includes both price updates and availability blocks)
     if calendar_batch:
+        price_updates = [d for d in calendar_batch if "price" in d]
+        block_updates = [d for d in calendar_batch if d.get("is_available") is False]
         logger.info(
-            "PUSHING %s: %s price updates to iGMS",
+            "PUSHING %s: %s updates (%s price, %s block) to iGMS",
             req.property_uid,
             len(calendar_batch),
+            len(price_updates),
+            len(block_updates),
         )
         try:
             result = client.set_calendar_batch(
@@ -487,11 +497,22 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
                 days=calendar_batch,
             )
             sc = getattr(result, "status_code", 200)
-            if sc >= 400:
-                errors.append(
-                    f"set-calendar-batch HTTP {sc}: "
-                    f"{getattr(result, 'payload', None)}"
+            payload = getattr(result, "payload", None)
+
+            # Check for error objects in response payload (iGMS returns HTTP 200
+            # with {"error": {"code": N, "message": "..."}} for scope/auth failures)
+            api_error = None
+            if isinstance(payload, dict) and "error" in payload:
+                err = payload["error"]
+                api_error = (
+                    f"iGMS API error (HTTP {sc}): "
+                    f"code={err.get('code', '?')} "
+                    f"message={err.get('message', str(err))}"
                 )
+
+            if sc >= 400 or api_error:
+                errors.append(api_error or f"set-calendar-batch HTTP {sc}: {payload}")
+                logger.error("PUSH FAILED %s: %s", req.property_uid, errors[-1])
             else:
                 logger.info(
                     "PUSH OK %s: %s updates sent (HTTP %s)",
@@ -503,46 +524,7 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
             errors.append(str(exc))
             logger.exception("set-calendar-batch failed for %s", req.property_uid)
 
-    block_ranges = _group_contiguous_dates(availability_block_dates)
-    if block_ranges:
-        logger.info(
-            "PUSHING %s: %s availability block ranges (%s dates)",
-            req.property_uid,
-            len(block_ranges),
-            availability_count,
-        )
-        for start_date, end_date in block_ranges:
-            try:
-                result = client.set_property_availability(
-                    property_uid=req.property_uid,
-                    start_date=start_date,
-                    end_date=end_date,
-                    is_available=False,
-                )
-                sc = getattr(result, "status_code", 200)
-                if sc >= 400:
-                    errors.append(
-                        f"set-property-calendar-availability HTTP {sc}: "
-                        f"{getattr(result, 'payload', None)}"
-                    )
-                else:
-                    logger.debug(
-                        "BLOCK OK %s: %s -> %s (HTTP %s)",
-                        req.property_uid,
-                        start_date,
-                        end_date,
-                        sc,
-                    )
-            except Exception as exc:
-                errors.append(str(exc))
-                logger.exception(
-                    "set-property-calendar-availability failed for %s (%s -> %s)",
-                    req.property_uid,
-                    start_date,
-                    end_date,
-                )
-
-    if not calendar_batch and not block_ranges:
+    if not calendar_batch:
         logger.info("PUSH %s: no changes - nothing to push", req.property_uid)
 
     # 11. Truncate blocked-date list
