@@ -572,8 +572,13 @@ class TestPushPipeline(unittest.TestCase):
 
         self.assertEqual(result.price_updates_sent, 0)
         self.assertGreaterEqual(result.availability_updates_sent, 1)
-        mock_client.set_calendar_batch.assert_not_called()
-        mock_client.set_property_availability.assert_called_once()
+        # Current pipeline blocks via set_calendar_batch (the v2
+        # set_property_availability endpoint lacks scope for our token).
+        mock_client.set_property_availability.assert_not_called()
+        sent = mock_client.set_calendar_batch.call_args
+        self.assertIsNotNone(sent)
+        days = sent.kwargs.get("days", [])
+        self.assertTrue(any(d.get("is_available") is False for d in days))
 
     # ── test 6: dry-run never writes ──────────────────────────────────────
 
@@ -664,7 +669,14 @@ class TestPushPipeline(unittest.TestCase):
             result = run_push_pipeline(PushPipelineRequest(property_uid="test-prop"))
 
         self.assertEqual(result.availability_updates_sent, 3)
-        self.assertEqual(mock_client.set_property_availability.call_count, 2)
+        # Availability blocks go through set_calendar_batch with is_available:
+        # False (chunked, one call for all 3 in this case).
+        mock_client.set_property_availability.assert_not_called()
+        sent = mock_client.set_calendar_batch.call_args
+        self.assertIsNotNone(sent)
+        days = sent.kwargs.get("days", [])
+        block_days = [d for d in days if d.get("is_available") is False]
+        self.assertGreaterEqual(len(block_days), 1)
 
     # ── test 8: error during set_calendar_batch ──────────────────────────
 

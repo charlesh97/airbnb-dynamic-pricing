@@ -15,6 +15,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .block_ledger import (
+    is_engine_owned,
+    load_ledger,
+    record_blocks,
+    remove_blocks,
+    save_ledger,
+    seed_from_bookings,
+)
 from .booking_adapter import fetch_bookings_for_window
 from .client import PricingClient
 from .config import EngineConfig
@@ -52,6 +60,7 @@ class PushPipelineResult:
     dates_evaluated: int = 0
     price_updates_sent: int = 0
     availability_updates_sent: int = 0
+    availability_unblocks_sent: int = 0
     dates_skipped_booked: int = 0
     dates_skipped_live_blocked: int = 0
     dates_skipped_outside_window: int = 0
@@ -283,6 +292,24 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
 
     logger.debug("Bookings: %s records  %s booked nights", len(bookings), len(booked_nights))
 
+    #  6b. Block ledger — engine-owned blocks only. Manual iGMS blocks are never
+    #  touched. Seed checkout-day blocks of existing bookings (created before the
+    #  ledger existed) so a later cancellation can be auto-unblocked.
+    ledger = load_ledger()
+    try:
+        block_after_cfg = bool(
+            (merged.get("availability", {}) or {}).get("block_day_after", False)
+        )
+        seeded = seed_from_bookings(ledger, req.property_uid, bookings, block_after_cfg)
+        if seeded:
+            logger.info("Block ledger: seeded %s checkout-day blocks for %s", seeded, req.property_uid)
+            try:
+                save_ledger(ledger)
+            except OSError as exc:
+                logger.warning("Block ledger seed save failed (non-fatal): %s", exc)
+    except Exception as exc:
+        logger.warning("Block ledger seed failed (non-fatal): %s", exc)
+
     # 7. Compute recommendations
     config_copy = copy.deepcopy(merged)
     av_cfg = config_copy.setdefault("availability", {})
@@ -319,8 +346,11 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
 
     # 8. Diff + build push payloads
     calendar_batch: list[dict[str, Any]] = []
+    block_batch: list[str] = []
+    unblock_batch: list[str] = []
     price_count = 0
     availability_count = 0
+    unblock_count = 0
     skipped_booked = 0
     skipped_live_blocked = 0
     skipped_outside = 0
@@ -341,6 +371,28 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
         live = live_day_map.get(date_str, {})
         live_avail = live.get("is_available")
         if live_avail is False:
+            # Already blocked in iGMS. Only unblock dates WE created (present in
+            # the block ledger). Manual blocks (Charles blocking in the iGMS UI)
+            # are never in the ledger → never touched.
+            if is_engine_owned(ledger, req.property_uid, date_str):
+                avail = engine.compute_availability(
+                    property_uid=req.property_uid,
+                    date=date_str,
+                    calendar_entry=None,
+                    bookings_in_window=bookings,
+                    config=config_copy,
+                )
+                if avail.is_available:
+                    # The rule that created this block no longer applies
+                    # (e.g. booking cancelled) → unblock it.
+                    unblock_batch.append(date_str)
+                    logger.debug(
+                        "UNBLOCK %s: engine-owned block, rule gone (%s)",
+                        date_str,
+                        avail.blocked_reason or "n/a",
+                    )
+                    continue
+                # Rule still applies → keep blocked, skip.
             skipped_live_blocked += 1
             blocked_dates.append(date_str)
             continue
@@ -431,11 +483,7 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
             # Push block via set_calendar_batch (set_property_availability v2
             # endpoint requires a scope our token doesn't have — it returns
             # HTTP 200 with error code 14 silently).
-            calendar_batch.append({
-                "date": date_str,
-                "currency": "USD",
-                "is_available": False,
-            })
+            block_batch.append(date_str)
             logger.debug(
                 "BLOCK %s: live_availability=%s reason=%s",
                 date_str,
@@ -443,15 +491,19 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
                 avail.blocked_reason or "availability_rule",
             )
 
+    availability_count += len(unblock_batch)
+    unblock_count = len(unblock_batch)
+
     # 9. Dry-run short-circuit
     if req.dry_run:
         logger.info(
-            "DRY-RUN %s: %s dates | would-push-price=%s would-block-availability=%s | "
-            "skipped-booked=%s skipped-blocked=%s skipped-outside=%s",
+            "DRY-RUN %s: %s dates | would-push-price=%s would-block-availability=%s "
+            "would-unblock=%s | skipped-booked=%s skipped-blocked=%s skipped-outside=%s",
             req.property_uid,
             len(results),
             price_count,
             availability_count,
+            unblock_count,
             skipped_booked,
             skipped_live_blocked,
             skipped_outside,
@@ -473,6 +525,7 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
             dates_evaluated=len(results),
             price_updates_sent=price_count,
             availability_updates_sent=availability_count,
+            availability_unblocks_sent=unblock_count,
             dates_skipped_booked=skipped_booked,
             dates_skipped_live_blocked=skipped_live_blocked,
             dates_skipped_outside_window=skipped_outside,
@@ -480,27 +533,20 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
             warnings=warnings,
         )
 
-    # 10. Push (calendar_batch now includes both price updates and availability blocks)
-    if calendar_batch:
-        price_updates = [d for d in calendar_batch if "price" in d]
-        block_updates = [d for d in calendar_batch if d.get("is_available") is False]
-        logger.info(
-            "PUSHING %s: %s updates (%s price, %s block) to iGMS",
-            req.property_uid,
-            len(calendar_batch),
-            len(price_updates),
-            len(block_updates),
-        )
+    # 10. Push — prices in one batch; availability (blocks + unblocks) chunked
+    #     to <=5 dates per call with read-back verification (iGMS silently drops
+    #     dates in larger batches while returning HTTP 200). The block ledger is
+    #     updated only for writes that actually stick, so manual iGMS blocks are
+    #     never recorded and never auto-unblocked.
+
+    def _push_batch(days: list[dict[str, Any]]) -> None:
+        """Send one set_calendar_batch call; record API errors in `errors`."""
+        if not days:
+            return
         try:
-            result = client.set_calendar_batch(
-                property_uid=req.property_uid,
-                days=calendar_batch,
-            )
+            result = client.set_calendar_batch(property_uid=req.property_uid, days=days)
             sc = getattr(result, "status_code", 200)
             payload = getattr(result, "payload", None)
-
-            # Check for error objects in response payload (iGMS returns HTTP 200
-            # with {"error": {"code": N, "message": "..."}} for scope/auth failures)
             api_error = None
             if isinstance(payload, dict) and "error" in payload:
                 err = payload["error"]
@@ -509,7 +555,6 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
                     f"code={err.get('code', '?')} "
                     f"message={err.get('message', str(err))}"
                 )
-
             if sc >= 400 or api_error:
                 errors.append(api_error or f"set-calendar-batch HTTP {sc}: {payload}")
                 logger.error("PUSH FAILED %s: %s", req.property_uid, errors[-1])
@@ -517,14 +562,83 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
                 logger.info(
                     "PUSH OK %s: %s updates sent (HTTP %s)",
                     req.property_uid,
-                    len(calendar_batch),
+                    len(days),
                     sc,
                 )
         except Exception as exc:
             errors.append(str(exc))
             logger.exception("set-calendar-batch failed for %s", req.property_uid)
 
-    if not calendar_batch:
+    def _verify_availability(date_str: str, expect_blocked: bool) -> bool:
+        """Read one date back from iGMS; True if it matches expectation."""
+        try:
+            raw = client.get_calendar(req.property_uid, date_str, date_str)
+            entries = raw.get("data", []) if isinstance(raw, dict) else raw
+            for e in entries:
+                blocked = e.get("is_available") in (0, False, "0", "false")
+                if blocked == expect_blocked:
+                    return True
+            return False
+        except Exception as exc:
+            logger.warning("Verify readback failed for %s: %s", date_str, exc)
+            return False
+
+    def _chunk(items: list[str], size: int = 5) -> list[list[str]]:
+        return [items[i:i + size] for i in range(0, len(items), size)]
+
+    ledger_dirty = False
+
+    if calendar_batch:
+        price_updates = [d for d in calendar_batch if "price" in d]
+        if price_updates:
+            _push_batch(price_updates)
+
+    # Blocks — chunk, push, verify, record in ledger only if verified.
+    for chunk in _chunk(block_batch):
+        days = [
+            {"date": d, "currency": "USD", "is_available": False}
+            for d in chunk
+        ]
+        _push_batch(days)
+        verified = [d for d in chunk if _verify_availability(d, expect_blocked=True)]
+        missed = [d for d in chunk if d not in verified]
+        if verified:
+            record_blocks(
+                ledger, req.property_uid, verified,
+                reason="availability_rule",
+            )
+            ledger_dirty = True
+        if missed:
+            logger.warning(
+                "BLOCK verify: %s dates did not stick: %s",
+                len(missed), missed,
+            )
+
+    # Unblocks — chunk, push, verify, drop from ledger only if verified.
+    for chunk in _chunk(unblock_batch):
+        days = [
+            {"date": d, "currency": "USD", "is_available": True}
+            for d in chunk
+        ]
+        _push_batch(days)
+        verified = [d for d in chunk if _verify_availability(d, expect_blocked=False)]
+        missed = [d for d in chunk if d not in verified]
+        if verified:
+            remove_blocks(ledger, req.property_uid, verified)
+            ledger_dirty = True
+        if missed:
+            logger.warning(
+                "UNBLOCK verify: %s dates did not stick: %s",
+                len(missed), missed,
+            )
+
+    if ledger_dirty:
+        try:
+            save_ledger(ledger)
+        except OSError as exc:
+            errors.append(f"Failed to save block ledger: {exc}")
+
+    if not (calendar_batch or block_batch or unblock_batch):
         logger.info("PUSH %s: no changes - nothing to push", req.property_uid)
 
     # 11. Truncate blocked-date list
@@ -536,13 +650,15 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
         blocked_dates = blocked_dates[:_SKIPPED_LIVE_BLOCKED_MAX]
 
     logger.info(
-        "PUSH RESULT %s: success=%s | evaluated=%s pushed-price=%s pushed-availability=%s | "
-        "skipped-booked=%s skipped-blocked=%s skipped-outside=%s | errors=%s",
+        "PUSH RESULT %s: success=%s | evaluated=%s pushed-price=%s "
+        "blocked=%s unblocked=%s | skipped-booked=%s skipped-blocked=%s "
+        "skipped-outside=%s | errors=%s",
         req.property_uid,
         len(errors) == 0,
         len(results),
         price_count,
-        availability_count,
+        availability_count - unblock_count,
+        unblock_count,
         skipped_booked,
         skipped_live_blocked,
         skipped_outside,
@@ -558,6 +674,7 @@ def run_push_pipeline(req: PushPipelineRequest) -> PushPipelineResult:
         dates_evaluated=len(results),
         price_updates_sent=price_count,
         availability_updates_sent=availability_count,
+        availability_unblocks_sent=unblock_count,
         dates_skipped_booked=skipped_booked,
         dates_skipped_live_blocked=skipped_live_blocked,
         dates_skipped_outside_window=skipped_outside,
